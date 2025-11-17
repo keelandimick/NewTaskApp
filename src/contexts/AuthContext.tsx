@@ -56,6 +56,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
+    // Clear user-specific localStorage items
+    if (user?.id) {
+      localStorage.removeItem(`selectedList-${user.id}`);
+    }
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
   };

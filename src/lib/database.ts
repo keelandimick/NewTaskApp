@@ -104,6 +104,7 @@ export const db = {
     const updateData: any = {};
     
     if ('title' in updates) updateData.title = updates.title;
+    if ('type' in updates) updateData.type = updates.type;
     if ('priority' in updates) updateData.priority = updates.priority;
     if ('status' in updates) updateData.status = updates.status;
     if ('listId' in updates) updateData.list_id = updates.listId;
@@ -111,6 +112,8 @@ export const db = {
     if ('dueDate' in updates) updateData.due_date = updates.dueDate?.toISOString();
     if ('recurrence' in updates) updateData.recurrence_settings = updates.recurrence;
     if ('metadata' in updates) updateData.metadata = updates.metadata;
+    if ('deletedAt' in updates) updateData.deleted_at = updates.deletedAt ? updates.deletedAt.toISOString() : null;
+    if ('position' in updates) updateData.position = updates.position;
 
     const { error } = await supabase
       .from('items')
@@ -204,6 +207,8 @@ function dbItemToItem(dbItem: DbItem & { notes?: DbNote[] }): Item {
     listId: dbItem.list_id,
     recurrence: dbItem.recurrence_settings as RecurrenceSettings | undefined,
     metadata: dbItem.metadata || undefined,
+    deletedAt: dbItem.deleted_at ? new Date(dbItem.deleted_at) : undefined,
+    position: (dbItem as any).position || undefined,
   };
 
   if (dbItem.type === 'task') {

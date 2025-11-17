@@ -1,30 +1,37 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from './useStore';
 import { useAuth } from '../contexts/AuthContext';
-import { Item, List, ViewMode, Note, TaskStatus, ReminderStatus, SortMode } from '../types';
+import { Item, List, ViewMode, Note, TaskStatus, ReminderStatus } from '../types';
 import { supabase } from '../lib/supabase';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
 // This hook wraps the store and automatically provides the userId from auth context
 export const useStoreWithAuth = () => {
   const store = useStore();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const userId = user?.id;
 
   const channelRef = useRef<RealtimeChannel | null>(null);
   const hasLoadedRef = useRef(false);
+  const isLoadingRef = useRef(false);
+  const lastUpdateTimeRef = useRef<number>(0);
+  const reloadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load data and set up real-time subscriptions when user is available
   useEffect(() => {
     if (!userId) {
       hasLoadedRef.current = false;
+      isLoadingRef.current = false;
       return;
     }
 
     // Load initial data
-    if (!hasLoadedRef.current) {
+    if (!hasLoadedRef.current && !isLoadingRef.current) {
       hasLoadedRef.current = true;
-      store.loadData(userId);
+      isLoadingRef.current = true;
+      store.loadData(userId).finally(() => {
+        isLoadingRef.current = false;
+      });
     }
 
     // Set up real-time subscriptions
@@ -39,9 +46,27 @@ export const useStoreWithAuth = () => {
           filter: `user_id=eq.${userId}`,
         },
         async () => {
-          // Reload data on any change to items
-          // This ensures consistency with the database
-          await store.loadData(userId);
+          // Debounce reloads to prevent overwriting recent updates
+          const now = Date.now();
+          const timeSinceLastUpdate = now - lastUpdateTimeRef.current;
+          
+          // If an update was made less than 2 seconds ago, delay the reload
+          if (timeSinceLastUpdate < 2000) {
+            if (reloadTimeoutRef.current) {
+              clearTimeout(reloadTimeoutRef.current);
+            }
+            reloadTimeoutRef.current = setTimeout(async () => {
+              if (!isLoadingRef.current) {
+                await store.loadData(userId);
+              }
+            }, 2000 - timeSinceLastUpdate);
+          } else {
+            // Reload data on any change to items
+            // This ensures consistency with the database
+            if (!isLoadingRef.current) {
+              await store.loadData(userId);
+            }
+          }
         }
       )
       .on(
@@ -54,7 +79,9 @@ export const useStoreWithAuth = () => {
         },
         async () => {
           // Reload data on any change to lists
-          await store.loadData(userId);
+          if (!isLoadingRef.current) {
+            await store.loadData(userId);
+          }
         }
       )
       .on(
@@ -67,7 +94,9 @@ export const useStoreWithAuth = () => {
         },
         async () => {
           // Reload data on any change to notes
-          await store.loadData(userId);
+          if (!isLoadingRef.current) {
+            await store.loadData(userId);
+          }
         }
       )
       .subscribe();
@@ -80,6 +109,10 @@ export const useStoreWithAuth = () => {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
+      if (reloadTimeoutRef.current) {
+        clearTimeout(reloadTimeoutRef.current);
+        reloadTimeoutRef.current = null;
+      }
     };
   }, [userId, store]);
 
@@ -91,12 +124,28 @@ export const useStoreWithAuth = () => {
 
   const updateItem = (id: string, updates: Partial<Item>) => {
     if (!userId) throw new Error('User must be authenticated');
+    lastUpdateTimeRef.current = Date.now();
     return store.updateItem(id, updates, userId);
   };
 
   const deleteItem = (id: string) => {
     if (!userId) throw new Error('User must be authenticated');
     return store.deleteItem(id, userId);
+  };
+
+  const restoreItem = (id: string) => {
+    if (!userId) throw new Error('User must be authenticated');
+    return store.restoreItem(id, userId);
+  };
+
+  const permanentlyDeleteItem = (id: string) => {
+    if (!userId) throw new Error('User must be authenticated');
+    return store.permanentlyDeleteItem(id, userId);
+  };
+
+  const emptyTrash = () => {
+    if (!userId) throw new Error('User must be authenticated');
+    return store.emptyTrash(userId);
   };
 
   const moveItem = (itemId: string, newStatus: TaskStatus | ReminderStatus) => {
@@ -124,6 +173,15 @@ export const useStoreWithAuth = () => {
     return store.deleteList(id, userId);
   };
 
+  const setCurrentList = (listId: string) => {
+    store.setCurrentList(listId);
+    // Save to localStorage when user changes list
+    if (userId) {
+      localStorage.setItem(`selectedList-${userId}`, listId);
+    }
+  };
+
+
   // Return all store properties and wrapped functions
   return {
     // State
@@ -131,7 +189,6 @@ export const useStoreWithAuth = () => {
     lists: store.lists,
     currentListId: store.currentListId,
     currentView: store.currentView,
-    sortMode: store.sortMode,
     selectedItemId: store.selectedItemId,
     highlightedItemId: store.highlightedItemId,
     loading: store.loading,
@@ -141,6 +198,9 @@ export const useStoreWithAuth = () => {
     addItem,
     updateItem,
     deleteItem,
+    restoreItem,
+    permanentlyDeleteItem,
+    emptyTrash,
     moveItem,
     addNote,
     addList,
@@ -149,9 +209,9 @@ export const useStoreWithAuth = () => {
 
     // Functions that don't need userId
     reorderItems: store.reorderItems,
-    setCurrentList: store.setCurrentList,
+    setCurrentList,
+    signOut,
     setCurrentView: store.setCurrentView,
-    setSortMode: store.setSortMode,
     setSelectedItem: store.setSelectedItem,
     setHighlightedItem: store.setHighlightedItem,
     getFilteredItems: store.getFilteredItems,

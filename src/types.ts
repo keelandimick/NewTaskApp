@@ -19,6 +19,8 @@ export interface BaseItem {
   listId: string;
   recurrence?: RecurrenceSettings;
   metadata?: Record<string, any>;
+  deletedAt?: Date;
+  position?: number;
 }
 
 export interface Task extends BaseItem {
@@ -52,8 +54,7 @@ export interface User {
   name: string;
 }
 
-export type ViewMode = 'tasks' | 'reminders' | 'recurring';
-export type SortMode = 'custom' | 'priority';
+export type ViewMode = 'tasks' | 'reminders' | 'recurring' | 'trash';
 
 export type RecurrenceFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -62,4 +63,5 @@ export interface RecurrenceSettings {
   time: string; // HH:MM format, defaults to 09:00
   daysOfWeek?: number[]; // For weekly: 0 = Sunday, 6 = Saturday
   dayOfMonth?: number; // For monthly
+  originalText?: string; // Store the original pattern text like "every other Thursday"
 }

@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useStoreWithAuth } from '../store/useStoreWithAuth';
 import { Priority, RecurrenceFrequency, ViewMode, Item } from '../types';
 import { format } from 'date-fns';
+import customChrono from '../lib/chronoConfig';
+import { processTextWithAI } from '../lib/ai';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -20,7 +22,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
     currentListId, 
     currentView, 
     setCurrentView, 
-    setHighlightedItem 
+    setHighlightedItem,
+    lists,
+    setCurrentList 
   } = useStoreWithAuth();
 
   const [title, setTitle] = useState('');
@@ -30,6 +34,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency>('daily');
   const [noteInput, setNoteInput] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [naturalDateInput, setNaturalDateInput] = useState('');
 
   // Initialize form with edit item data
   useEffect(() => {
@@ -42,6 +48,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
       setIsRecurring(false);
       setRecurrenceFrequency('daily');
       setNoteInput('');
+      setNaturalDateInput('');
     } else if (mode === 'edit' && editItem) {
       setTitle(editItem.title);
       setPriority(editItem.priority);
@@ -50,6 +57,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
         const date = new Date(editItem.reminderDate);
         setDueDate(format(date, 'yyyy-MM-dd'));
         setDueTime(format(date, 'HH:mm'));
+        // Don't set naturalDateInput for edit mode
       }
       
       if (editItem.recurrence) {
@@ -84,75 +92,198 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
 
   const handleSubmit = async () => {
     if (!title.trim()) return;
+    
+    setIsProcessing(true);
+    console.log('Started processing, isProcessing:', true);
 
-    const hasDate = dueDate || isRecurring;
+    // Try to extract date and recurring patterns from title if no date is set
+    let extractedTitle = title.trim();
+    let extractedDate: Date | undefined;
+    let detectedRecurrence: { frequency: RecurrenceFrequency; time: string; originalText?: string } | undefined;
+    
+    // First, check for dates and recurring patterns
+    if (!dueDate && !isRecurring) {
+      // Check for recurring patterns first
+      const recurringPatterns = [
+        { pattern: /\b(every\s+day|daily)\b/i, frequency: 'daily' as RecurrenceFrequency },
+        { pattern: /\b(every\s+week|weekly)\b/i, frequency: 'weekly' as RecurrenceFrequency },
+        { pattern: /\b(every\s+month|monthly)\b/i, frequency: 'monthly' as RecurrenceFrequency },
+        { pattern: /\b(every\s+year|yearly|annually)\b/i, frequency: 'yearly' as RecurrenceFrequency },
+        { pattern: /\bevery\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i, frequency: 'weekly' as RecurrenceFrequency },
+        // Additional patterns - best effort basis
+        { pattern: /\bevery\s+\d+\s+hours?\b/i, frequency: 'daily' as RecurrenceFrequency }, // "every 3 hours" -> daily
+        { pattern: /\bevery\s+(other|2nd|second)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i, frequency: 'weekly' as RecurrenceFrequency }, // "every other tuesday" -> weekly
+        { pattern: /\b(weekdays|every\s+weekday)\b/i, frequency: 'daily' as RecurrenceFrequency }, // "weekdays" -> daily
+        { pattern: /\b(weekends|every\s+weekend)\b/i, frequency: 'weekly' as RecurrenceFrequency } // "weekends" -> weekly
+      ];
+
+      for (const { pattern, frequency } of recurringPatterns) {
+        const match = title.match(pattern);
+        if (match) {
+          detectedRecurrence = { 
+            frequency, 
+            time: '09:00',
+            originalText: match[0] // Store the original pattern text
+          };
+          extractedTitle = title.replace(match[0], '').trim();
+          // Re-capitalize if needed after removing recurring pattern
+          if (extractedTitle.length > 0) {
+            extractedTitle = extractedTitle.charAt(0).toUpperCase() + extractedTitle.slice(1);
+          }
+          
+          // Try to parse time from the title
+          const timeMatch = title.match(/\b(at\s+)?(\d{1,2}(:\d{2})?\s*(am|pm)?|\d{1,2}:\d{2})\b/i);
+          if (timeMatch && detectedRecurrence) {
+            const parsedTime = customChrono.parseDate(timeMatch[0]);
+            if (parsedTime) {
+              detectedRecurrence.time = format(parsedTime, 'HH:mm');
+            }
+          }
+          break;
+        }
+      }
+
+      // If no recurring pattern found, try to extract a single date
+      if (!detectedRecurrence) {
+        const parsedFromTitle = customChrono.parse(title.trim());
+        if (parsedFromTitle.length > 0) {
+          extractedDate = parsedFromTitle[0].start.date();
+          // Remove the date text from the title
+          extractedTitle = title.replace(parsedFromTitle[0].text, '').trim();
+          // Re-capitalize if needed after removing date text
+          if (extractedTitle.length > 0) {
+            extractedTitle = extractedTitle.charAt(0).toUpperCase() + extractedTitle.slice(1);
+          }
+        }
+      }
+    }
+
+    // Now process the cleaned title with AI for spell correction and proper noun capitalization
+    let aiSuggestedListId: string | undefined;
+    try {
+      console.log('Processing with AI:', extractedTitle);
+      const processed = await processTextWithAI(extractedTitle, lists.map(l => ({ id: l.id, name: l.name })));
+      extractedTitle = processed.correctedText;
+      aiSuggestedListId = processed.suggestedListId;
+      console.log('AI processed result:', extractedTitle, 'Suggested list:', aiSuggestedListId);
+    } catch (error) {
+      console.error('AI processing failed, using original text:', error);
+      // Fallback: just capitalize first letter
+      if (extractedTitle.length > 0) {
+        extractedTitle = extractedTitle.charAt(0).toUpperCase() + extractedTitle.slice(1);
+      }
+    }
+
+    const hasDate = dueDate || isRecurring || extractedDate || detectedRecurrence;
     const itemType = hasDate ? 'reminder' : 'task';
 
     let reminderDate: Date | undefined;
     if (dueDate) {
       reminderDate = new Date(`${dueDate}T${dueTime || '09:00'}`);
+    } else if (extractedDate && !detectedRecurrence) {
+      reminderDate = extractedDate;
     }
 
     const recurrence = isRecurring ? {
       frequency: recurrenceFrequency,
       time: dueTime || '09:00',
+    } : detectedRecurrence ? {
+      frequency: detectedRecurrence.frequency,
+      time: detectedRecurrence.time,
+      originalText: detectedRecurrence.originalText
     } : undefined;
 
     if (mode === 'create') {
       try {
+        // Use AI-suggested list if available, otherwise use current selection
+        let targetListId: string;
+        if (aiSuggestedListId && currentListId === 'all') {
+          // If on "All" view and AI suggested a list, use it
+          targetListId = aiSuggestedListId;
+        } else if (currentListId === 'all') {
+          // If on "All" view with no AI suggestion, use first list
+          targetListId = lists[0]?.id;
+        } else {
+          // Otherwise use the currently selected list
+          targetListId = currentListId;
+        }
+
         const newItemId = await addItem({
           type: itemType,
-          title: title.trim(),
+          title: extractedTitle,
           priority,
           status: itemType === 'task' ? (defaultColumn as any || 'start') : 'within7',
-          listId: currentListId,
+          listId: targetListId,
           reminderDate,
           recurrence,
         } as any);
 
-        // Navigate to the appropriate view and highlight the new item
-        let targetView: ViewMode = 'tasks';
-        if (isRecurring) {
+        // Navigation logic - simplified and complete
+        // 1. Determine target view based on item type
+        let targetView: ViewMode;
+        if (recurrence) {
           targetView = 'recurring';
-        } else if (dueDate) {
+        } else if (reminderDate) {
           targetView = 'reminders';
+        } else {
+          targetView = 'tasks';
         }
 
+        // 2. If we were on "All" list, switch to the actual list
+        if (currentListId === 'all') {
+          setCurrentList(targetListId);
+        }
+
+        // 3. Navigate to the appropriate view
         if (targetView !== currentView) {
           setCurrentView(targetView);
         }
+        
+        // 4. Highlight the new item
         setHighlightedItem(newItemId);
       } catch (error) {
         console.error('Failed to add item:', error);
+        setIsProcessing(false);
+        return;
       }
     } else if (mode === 'edit' && editItem) {
       try {
         // Update existing item
         await updateItem(editItem.id, {
-          title: title.trim(),
+          title: extractedTitle,
           priority,
           reminderDate,
           recurrence,
           type: itemType,
         });
 
-        // Navigate to the appropriate view and highlight if item type changed
-        let targetView: ViewMode = 'tasks';
-        if (isRecurring) {
+        // Navigation logic for edits - simplified
+        // 1. Determine target view based on updated item type
+        let targetView: ViewMode;
+        if (recurrence) {
           targetView = 'recurring';
-        } else if (dueDate) {
+        } else if (reminderDate) {
           targetView = 'reminders';
+        } else {
+          targetView = 'tasks';
         }
 
-        if (targetView !== currentView) {
+        // 2. Navigate to the appropriate view if item type changed
+        if (targetView !== currentView && currentView !== 'trash') {
           setCurrentView(targetView);
         }
+        
+        // 3. Highlight the edited item
         setHighlightedItem(editItem.id);
       } catch (error) {
         console.error('Failed to update item:', error);
+        setIsProcessing(false);
+        return;
       }
     }
 
+    console.log('Finished processing, setting isProcessing to false');
+    setIsProcessing(false);
     onClose();
   };
 
@@ -211,7 +342,30 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
               placeholder="What needs to be done?"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               autoFocus
+              spellCheck="true"
             />
+            {mode === 'create' && !dueDate && !isRecurring && (() => {
+              // Check for recurring patterns
+              const recurringMatch = title.match(/\b(every\s+(day|week|month|year|\d+\s+hours?|other\s+\w+|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|daily|weekly|monthly|yearly|annually|weekdays?|weekends?)\b/i);
+              if (recurringMatch) {
+                return (
+                  <div className="text-xs text-gray-500 mt-1">
+                    Recurring pattern detected: {recurringMatch[0]}
+                  </div>
+                );
+              }
+              
+              // Check for single date
+              const parsed = customChrono.parse(title);
+              if (parsed.length > 0) {
+                return (
+                  <div className="text-xs text-gray-500 mt-1">
+                    Date detected: {format(parsed[0].start.date(), 'MMM d, yyyy h:mm a')}
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </div>
 
           {/* Priority */}
@@ -234,58 +388,103 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
             </div>
           </div>
 
-          {/* Due Date/Time */}
-          <div className="mb-4">
-            <label className="text-sm font-medium text-gray-700 mb-2 block">Due Date & Time</label>
-            <div className="flex gap-2">
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <input
-                type="time"
-                value={dueTime}
-                onChange={(e) => setDueTime(e.target.value)}
-                placeholder="09:00"
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-
-          {/* Recurrence */}
-          <div className="mb-6">
-            <div className="flex items-center mb-3">
-              <input
-                type="checkbox"
-                id="recurring-modal"
-                checked={isRecurring}
-                onChange={(e) => setIsRecurring(e.target.checked)}
-                className="mr-2"
-              />
-              <label htmlFor="recurring-modal" className="text-sm font-medium text-gray-700">
-                Make recurring
-              </label>
-            </div>
-            {isRecurring && (
-              <div className="flex gap-2">
-                {frequencies.map(f => (
+          {/* Due Date/Time - Only show in edit mode */}
+          {mode === 'edit' && (
+            <div className="mb-4">
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Due Date & Time</label>
+              <div className="space-y-2">
+                {/* Natural language input */}
+                <input
+                  type="text"
+                  value={naturalDateInput}
+                  onChange={(e) => {
+                    setNaturalDateInput(e.target.value);
+                    // Parse the input
+                    const parsed = customChrono.parseDate(e.target.value);
+                    if (parsed) {
+                      setDueDate(format(parsed, 'yyyy-MM-dd'));
+                      setDueTime(format(parsed, 'HH:mm'));
+                    }
+                  }}
+                  placeholder="e.g. tomorrow at 3pm, next Monday, in 2 hours"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {naturalDateInput && customChrono.parseDate(naturalDateInput) && (
+                  <div className="text-xs text-gray-500">
+                    Understood as: {format(customChrono.parseDate(naturalDateInput)!, 'MMM d, yyyy h:mm a')}
+                  </div>
+                )}
+                {/* Manual date/time inputs with clear button */}
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => {
+                      setDueDate(e.target.value);
+                      setNaturalDateInput(''); // Clear natural language when manual input is used
+                    }}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    type="time"
+                    value={dueTime}
+                    onChange={(e) => {
+                      setDueTime(e.target.value);
+                      setNaturalDateInput(''); // Clear natural language when manual input is used
+                    }}
+                    placeholder="09:00"
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                   <button
-                    key={f.value}
-                    onClick={() => setRecurrenceFrequency(f.value)}
-                    className={`px-3 py-1.5 rounded-lg text-sm transition-all ${
-                      recurrenceFrequency === f.value 
-                        ? 'bg-blue-500 text-white' 
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
+                    type="button"
+                    onClick={() => {
+                      setDueDate('');
+                      setDueTime('');
+                      setNaturalDateInput('');
+                    }}
+                    className="px-3 py-2 text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                   >
-                    {f.label}
+                    Clear
                   </button>
-                ))}
+                </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* Recurrence - Only show in edit mode */}
+          {mode === 'edit' && (
+            <div className="mb-6">
+              <div className="flex items-center mb-3">
+                <input
+                  type="checkbox"
+                  id="recurring-modal"
+                  checked={isRecurring}
+                  onChange={(e) => setIsRecurring(e.target.checked)}
+                  className="mr-2"
+                />
+                <label htmlFor="recurring-modal" className="text-sm font-medium text-gray-700">
+                  Make recurring
+                </label>
+              </div>
+              {isRecurring && (
+                <div className="flex gap-2">
+                  {frequencies.map(f => (
+                    <button
+                      key={f.value}
+                      onClick={() => setRecurrenceFrequency(f.value)}
+                      className={`px-3 py-1.5 rounded-lg text-sm transition-all ${
+                        recurrenceFrequency === f.value 
+                          ? 'bg-blue-500 text-white' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Notes section for edit mode */}
           {mode === 'edit' && editItem && (
@@ -317,6 +516,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
                   }}
                   placeholder="Add a note..."
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  spellCheck="true"
                 />
                 <button
                   onClick={handleAddNote}
@@ -341,15 +541,31 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
             <div className="flex gap-2 ml-auto">
               <button
                 onClick={onClose}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                disabled={isProcessing}
+                className={`px-4 py-2 transition-colors ${
+                  isProcessing
+                    ? 'text-gray-400 cursor-not-allowed'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
               >
                 Cancel
               </button>
               <button
                 onClick={handleSubmit}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                disabled={isProcessing}
+                className={`px-4 py-2 text-white rounded-lg transition-colors flex items-center gap-2 ${
+                  isProcessing 
+                    ? 'bg-blue-500 cursor-not-allowed' 
+                    : 'bg-blue-600 hover:bg-blue-700'
+                }`}
               >
-                {mode === 'create' ? 'Create' : 'Save'}
+                {isProcessing && (
+                  <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                )}
+                {isProcessing ? 'Processing...' : (mode === 'create' ? 'Create' : 'Save')}
               </button>
             </div>
           </div>
