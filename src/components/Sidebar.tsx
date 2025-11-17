@@ -271,11 +271,27 @@ const DroppableListItem: React.FC<DroppableListItemProps> = ({ list, isActive, o
                 const emails = collaboratorEmails.split(',').map(e => e.trim()).filter(e => e);
                 if (emails.length > 0) {
                   try {
-                    await updateList(list.id, { sharedWith: emails });
-                    setShowCollaborateModal(false);
-                    setCollaboratorEmails('');
+                    // Import db to check if users exist
+                    const { db } = await import('../lib/database');
+                    
+                    // Check which emails exist
+                    const results = await db.checkUsersExist(emails);
+                    const validEmails = results.filter(r => r.exists).map(r => r.email);
+                    const invalidEmails = results.filter(r => !r.exists).map(r => r.email);
+                    
+                    if (invalidEmails.length > 0) {
+                      alert(`The following email(s) don't have FlowTask accounts: ${invalidEmails.join(', ')}`);
+                      return;
+                    }
+                    
+                    if (validEmails.length > 0) {
+                      await updateList(list.id, { sharedWith: validEmails });
+                      setShowCollaborateModal(false);
+                      setCollaboratorEmails('');
+                    }
                   } catch (error) {
                     console.error('Failed to share list:', error);
+                    alert('Failed to share list. Please try again.');
                   }
                 }
               }}

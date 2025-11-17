@@ -19,7 +19,7 @@ export const useStoreWithAuth = () => {
 
   // Load data and set up real-time subscriptions when user is available
   useEffect(() => {
-    if (!userId) {
+    if (!userId || !user?.email) {
       hasLoadedRef.current = false;
       isLoadingRef.current = false;
       return;
@@ -43,10 +43,10 @@ export const useStoreWithAuth = () => {
           event: '*',
           schema: 'public',
           table: 'items',
-          filter: `user_id=eq.${userId}`,
         },
-        async () => {
-          // Debounce reloads to prevent overwriting recent updates
+        async (payload) => {
+          // Check if this item belongs to a list we have access to
+          // We'll reload data if it does
           const now = Date.now();
           const timeSinceLastUpdate = now - lastUpdateTimeRef.current;
           
@@ -75,11 +75,14 @@ export const useStoreWithAuth = () => {
           event: '*',
           schema: 'public',
           table: 'lists',
-          filter: `user_id=eq.${userId}`,
         },
-        async () => {
-          // Reload data on any change to lists
-          if (!isLoadingRef.current) {
+        async (payload) => {
+          // Check if this is a list we own or are shared with
+          const list = payload.new as any;
+          const isOurList = list?.user_id === userId || 
+                           (list?.shared_with && list.shared_with.includes(user.email));
+          
+          if (isOurList && !isLoadingRef.current) {
             await store.loadData(userId);
           }
         }
@@ -90,7 +93,6 @@ export const useStoreWithAuth = () => {
           event: '*',
           schema: 'public',
           table: 'notes',
-          filter: `user_id=eq.${userId}`,
         },
         async () => {
           // Reload data on any change to notes
@@ -114,7 +116,7 @@ export const useStoreWithAuth = () => {
         reloadTimeoutRef.current = null;
       }
     };
-  }, [userId, store]);
+  }, [userId, user?.email, store]);
 
   // Create wrapped functions that automatically include userId
   const addItem = (item: Omit<Item, 'id' | 'createdAt' | 'updatedAt' | 'notes'>) => {

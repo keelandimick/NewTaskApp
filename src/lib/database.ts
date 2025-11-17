@@ -8,10 +8,15 @@ type DbNote = Database['public']['Tables']['notes']['Row'];
 export const db = {
   // Lists
   async getLists(userId: string): Promise<List[]> {
+    // Get user's email first
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    // Get lists where user is owner OR in sharedWith array
     const { data, error } = await supabase
       .from('lists')
       .select('*')
-      .eq('user_id', userId)
+      .or(`user_id.eq.${userId},shared_with.cs.{${user.email}}`)
       .order('created_at', { ascending: true });
 
     if (error) throw error;
@@ -39,6 +44,20 @@ export const db = {
   },
 
   async updateList(id: string, updates: Partial<List>, userId: string): Promise<void> {
+    // First check if user has access (owner or collaborator)
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const { data: list, error: fetchError } = await supabase
+      .from('lists')
+      .select('*')
+      .eq('id', id)
+      .or(`user_id.eq.${userId},shared_with.cs.{${user.email}}`)
+      .single();
+
+    if (fetchError || !list) throw new Error('List not found or access denied');
+
+    // Now update the list
     const { error } = await supabase
       .from('lists')
       .update({
@@ -48,13 +67,13 @@ export const db = {
         is_locked: updates.isLocked,
         shared_with: updates.sharedWith,
       })
-      .eq('id', id)
-      .eq('user_id', userId);
+      .eq('id', id);
 
     if (error) throw error;
   },
 
   async deleteList(id: string, userId: string): Promise<void> {
+    // Only the owner can delete a list
     const { error } = await supabase
       .from('lists')
       .delete()
@@ -66,10 +85,17 @@ export const db = {
 
   // Items
   async getItems(userId: string): Promise<Item[]> {
+    // First get all lists the user has access to (owned + shared)
+    const lists = await this.getLists(userId);
+    const listIds = lists.map(l => l.id);
+    
+    if (listIds.length === 0) return [];
+
+    // Get items from all accessible lists
     const { data, error } = await supabase
       .from('items')
       .select('*, notes(*)')
-      .eq('user_id', userId)
+      .in('list_id', listIds)
       .order('created_at', { ascending: true });
 
     if (error) throw error;
@@ -101,6 +127,21 @@ export const db = {
   },
 
   async updateItem(id: string, updates: Partial<Item>, userId: string): Promise<void> {
+    // First check if user has access to this item's list
+    const { data: item } = await supabase
+      .from('items')
+      .select('list_id')
+      .eq('id', id)
+      .single();
+    
+    if (!item) throw new Error('Item not found');
+    
+    // Verify user has access to this list
+    const lists = await this.getLists(userId);
+    if (!lists.some(l => l.id === item.list_id)) {
+      throw new Error('Access denied');
+    }
+
     const updateData: any = {};
     
     if ('title' in updates) updateData.title = updates.title;
@@ -118,18 +159,31 @@ export const db = {
     const { error } = await supabase
       .from('items')
       .update(updateData)
-      .eq('id', id)
-      .eq('user_id', userId);
+      .eq('id', id);
 
     if (error) throw error;
   },
 
   async deleteItem(id: string, userId: string): Promise<void> {
+    // First check if user has access to this item's list
+    const { data: item } = await supabase
+      .from('items')
+      .select('list_id')
+      .eq('id', id)
+      .single();
+    
+    if (!item) throw new Error('Item not found');
+    
+    // Verify user has access to this list
+    const lists = await this.getLists(userId);
+    if (!lists.some(l => l.id === item.list_id)) {
+      throw new Error('Access denied');
+    }
+
     const { error } = await supabase
       .from('items')
       .delete()
-      .eq('id', id)
-      .eq('user_id', userId);
+      .eq('id', id);
 
     if (error) throw error;
   },
@@ -179,6 +233,20 @@ export const db = {
   async signOut() {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
+  },
+
+  // Check if users exist by email
+  async checkUsersExist(emails: string[]): Promise<{ email: string; exists: boolean }[]> {
+    const { data, error } = await supabase
+      .rpc('check_users_exist', { emails });
+
+    if (error) throw error;
+    
+    // Map user_exists to exists for consistency
+    return (data || []).map((item: { email: string; user_exists: boolean }) => ({
+      email: item.email,
+      exists: item.user_exists
+    }));
   },
 };
 
