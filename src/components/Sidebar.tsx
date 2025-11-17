@@ -500,8 +500,11 @@ export const Sidebar: React.FC = () => {
                   createdAt: new Date(),
                   updatedAt: new Date()
                 } as any}
-                isActive={currentListId === 'all'}
-                onSelect={() => setCurrentList('all')}
+                isActive={currentListId === 'all' && currentView !== 'trash'}
+                onSelect={() => {
+                  setCurrentList('all');
+                  if (currentView === 'trash') setCurrentView('tasks');
+                }}
               />
             )}
             
@@ -510,8 +513,11 @@ export const Sidebar: React.FC = () => {
               <DroppableListItem
                 key={list.id}
                 list={list}
-                isActive={currentListId === list.id}
-                onSelect={() => setCurrentList(list.id)}
+                isActive={currentListId === list.id && currentView !== 'trash'}
+                onSelect={() => {
+                  setCurrentList(list.id);
+                  if (currentView === 'trash') setCurrentView('tasks');
+                }}
                 onDelete={list.id !== 'default' ? async () => {
                   const listTasks = items.filter(item => item.listId === list.id);
                   const message = listTasks.length > 0
@@ -567,7 +573,10 @@ export const Sidebar: React.FC = () => {
       {/* Trash tab at the bottom */}
       <div className="mt-auto px-4 space-y-2">
         <button
-          onClick={() => setCurrentView('trash')}
+          onClick={() => {
+            setCurrentView('trash');
+            setCurrentList(''); // Clear the selected list when trash is selected
+          }}
           className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
             currentView === 'trash'
               ? 'bg-red-100 text-red-700'
