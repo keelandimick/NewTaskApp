@@ -242,11 +242,8 @@ export const db = {
         .rpc('check_users_exist', { emails });
 
       if (error) {
-        console.error('RPC error:', error);
         throw error;
       }
-      
-      console.log('RPC response:', data);
       
       // Map user_exists to exists for consistency
       return (data || []).map((item: { email: string; user_exists: boolean }) => ({

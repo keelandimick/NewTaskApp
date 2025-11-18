@@ -137,7 +137,7 @@ const DroppableListItem: React.FC<DroppableListItemProps> = ({ list, isActive, o
               }
             }}
             onClick={(e) => e.stopPropagation()}
-            className="flex-1 bg-transparent outline-none border-b border-gray-400"
+            className="flex-1 text-sm bg-transparent border-none outline-none focus:outline-none focus:ring-0 p-0 m-0"
             autoFocus
             spellCheck="true"
           />
@@ -276,7 +276,6 @@ const DroppableListItem: React.FC<DroppableListItemProps> = ({ list, isActive, o
                     
                     // Check which emails exist
                     const results = await db.checkUsersExist(emails);
-                    console.log('Email validation results:', results);
                     const validEmails = results.filter(r => r.exists).map(r => r.email);
                     const invalidEmails = results.filter(r => !r.exists).map(r => r.email);
                     
