@@ -194,8 +194,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
       try {
         // Use AI-suggested list if available, otherwise use current selection
         let targetListId: string;
-        if (aiSuggestedListId && currentListId === 'all') {
-          // If on "All" view and AI suggested a list, use it
+        if (aiSuggestedListId) {
+          // Always prefer AI suggestion when available
           targetListId = aiSuggestedListId;
         } else if (currentListId === 'all') {
           // If on "All" view with no AI suggestion, use first list

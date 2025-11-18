@@ -50,8 +50,9 @@ export const useStoreWithAuth = () => {
           const now = Date.now();
           const timeSinceLastUpdate = now - lastUpdateTimeRef.current;
           
-          // If an update was made less than 2 seconds ago, delay the reload
-          if (timeSinceLastUpdate < 2000) {
+          // If an update was made less than 3 seconds ago, delay the reload
+          // This gives more time for database transactions to complete
+          if (timeSinceLastUpdate < 3000) {
             if (reloadTimeoutRef.current) {
               clearTimeout(reloadTimeoutRef.current);
             }
@@ -59,7 +60,7 @@ export const useStoreWithAuth = () => {
               if (!isLoadingRef.current) {
                 await store.loadData(userId);
               }
-            }, 2000 - timeSinceLastUpdate);
+            }, 3000 - timeSinceLastUpdate);
           } else {
             // Reload data on any change to items
             // This ensures consistency with the database
@@ -121,6 +122,7 @@ export const useStoreWithAuth = () => {
   // Create wrapped functions that automatically include userId
   const addItem = (item: Omit<Item, 'id' | 'createdAt' | 'updatedAt' | 'notes'>) => {
     if (!userId) throw new Error('User must be authenticated');
+    lastUpdateTimeRef.current = Date.now();
     return store.addItem(item, userId);
   };
 
@@ -132,16 +134,19 @@ export const useStoreWithAuth = () => {
 
   const deleteItem = (id: string) => {
     if (!userId) throw new Error('User must be authenticated');
+    lastUpdateTimeRef.current = Date.now();
     return store.deleteItem(id, userId);
   };
 
   const restoreItem = (id: string) => {
     if (!userId) throw new Error('User must be authenticated');
+    lastUpdateTimeRef.current = Date.now();
     return store.restoreItem(id, userId);
   };
 
   const permanentlyDeleteItem = (id: string) => {
     if (!userId) throw new Error('User must be authenticated');
+    lastUpdateTimeRef.current = Date.now();
     return store.permanentlyDeleteItem(id, userId);
   };
 
@@ -152,6 +157,7 @@ export const useStoreWithAuth = () => {
 
   const moveItem = (itemId: string, newStatus: TaskStatus | ReminderStatus) => {
     if (!userId) throw new Error('User must be authenticated');
+    lastUpdateTimeRef.current = Date.now();
     return store.moveItem(itemId, newStatus, userId);
   };
 
@@ -167,6 +173,7 @@ export const useStoreWithAuth = () => {
 
   const updateList = (id: string, updates: Partial<List>) => {
     if (!userId) throw new Error('User must be authenticated');
+    lastUpdateTimeRef.current = Date.now();
     return store.updateList(id, updates, userId);
   };
 
