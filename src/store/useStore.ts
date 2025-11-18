@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import { Item, List, ViewMode, TaskStatus, ReminderStatus, Priority } from '../types';
+import { Item, List, ViewMode, TaskStatus, ReminderStatus } from '../types';
 import { db } from '../lib/database';
+import { calculateReminderStatus } from '../utils/dateUtils';
 
 interface Store {
   items: Item[];
@@ -36,37 +37,7 @@ interface Store {
   getFilteredItems: () => Item[];
 }
 
-// Helper function to calculate reminder status based on date
-const calculateReminderStatus = (reminderDate?: Date): ReminderStatus => {
-  if (!reminderDate) return 'within7';
-  
-  const now = new Date();
-  const reminder = new Date(reminderDate);
-  
-  // Reset time parts for date comparison
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const reminderDateOnly = new Date(reminder.getFullYear(), reminder.getMonth(), reminder.getDate());
-  
-  const diffTime = reminderDateOnly.getTime() - todayStart.getTime();
-  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-  
-  if (diffDays < 0) {
-    return 'today'; // Overdue goes to today
-  } else if (diffDays === 0) {
-    return 'today';
-  } else if (diffDays <= 7) {
-    return 'within7';
-  } else {
-    return '7plus';
-  }
-};
 
-// Priority sort order: now > high > low
-const priorityOrder: Record<Priority, number> = {
-  now: 0,
-  high: 1,
-  low: 2,
-};
 
 export const useStore = create<Store>((set, get) => ({
   items: [],
@@ -97,7 +68,6 @@ export const useStore = create<Store>((set, get) => ({
           lists.push(newList);
         } catch (error) {
           // If creation fails (e.g., due to a unique constraint), reload lists
-          console.log('Default list creation failed, likely already exists:', error);
           const updatedLists = await db.getLists(userId);
           lists.length = 0;
           lists.push(...updatedLists);

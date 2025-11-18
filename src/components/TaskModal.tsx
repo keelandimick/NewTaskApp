@@ -94,7 +94,6 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
     if (!title.trim()) return;
     
     setIsProcessing(true);
-    console.log('Started processing, isProcessing:', true);
 
     // Try to extract date and recurring patterns from title if no date is set
     let extractedTitle = title.trim();
@@ -161,11 +160,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
     // Now process the cleaned title with AI for spell correction and proper noun capitalization
     let aiSuggestedListId: string | undefined;
     try {
-      console.log('Processing with AI:', extractedTitle);
       const processed = await processTextWithAI(extractedTitle, lists.map(l => ({ id: l.id, name: l.name })));
       extractedTitle = processed.correctedText;
       aiSuggestedListId = processed.suggestedListId;
-      console.log('AI processed result:', extractedTitle, 'Suggested list:', aiSuggestedListId);
     } catch (error) {
       console.error('AI processing failed, using original text:', error);
       // Fallback: just capitalize first letter
@@ -282,7 +279,6 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
       }
     }
 
-    console.log('Finished processing, setting isProcessing to false');
     setIsProcessing(false);
     onClose();
   };

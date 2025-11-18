@@ -137,12 +137,13 @@ const DroppableListItem: React.FC<DroppableListItemProps> = ({ list, isActive, o
               }
             }}
             onClick={(e) => e.stopPropagation()}
-            className="flex-1 text-sm bg-transparent border-none outline-none focus:outline-none focus:ring-0 p-0 m-0"
+            className="flex-1 bg-transparent border-none outline-none focus:outline-none focus:ring-0 p-0 m-0"
             autoFocus
             spellCheck="true"
           />
         ) : (
           <span
+            className="flex-1"
             onDoubleClick={() => {
               if (!isAllList) {
                 setIsEditingName(true);

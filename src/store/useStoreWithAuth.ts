@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from './useStore';
 import { useAuth } from '../contexts/AuthContext';
-import { Item, List, ViewMode, Note, TaskStatus, ReminderStatus } from '../types';
+import { Item, List, TaskStatus, ReminderStatus } from '../types';
 import { supabase } from '../lib/supabase';
 import { RealtimeChannel } from '@supabase/supabase-js';
 

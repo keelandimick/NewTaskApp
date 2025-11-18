@@ -90,12 +90,9 @@ export async function processTextWithAI(text: string, lists?: Array<{id: string,
       });
       
       const matchedId = listMatchResponse.choices[0]?.message?.content?.trim();
-      console.log('AI suggested list ID:', matchedId, 'for task:', correctedText);
       // Verify the ID exists in our lists
       if (matchedId && lists.find(l => l.id === matchedId)) {
         suggestedListId = matchedId;
-      } else {
-        console.log('AI suggested ID not found in lists, falling back to first list');
       }
     }
     
@@ -160,7 +157,7 @@ export function renderTextWithLinks(text: string): React.ReactNode {
 }
 
 // Function to extract tasks from image or text
-export async function extractTasksFromImage(base64Image: string, fileType: 'image' | 'pdf', lists: Array<{id: string, name: string}>): Promise<Array<{title: string, listId: string, priority: 'now' | 'high' | 'low'}>> {
+export async function extractTasksFromImage(base64Image: string, _fileType: 'image' | 'pdf', lists: Array<{id: string, name: string}>): Promise<Array<{title: string, listId: string, priority: 'now' | 'high' | 'low'}>> {
   try {
     // For images, use GPT-4 Vision
     const response = await openai.chat.completions.create({

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { TaskCard } from './TaskCard';
-import { Item, TaskStatus, ReminderStatus } from '../types';
+import { Item, TaskStatus } from '../types';
 import { useStoreWithAuth } from '../store/useStoreWithAuth';
 import { useDndContext } from '@dnd-kit/core';
 
