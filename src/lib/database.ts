@@ -96,7 +96,7 @@ export const db = {
       .from('items')
       .select('*, notes(*)')
       .in('list_id', listIds)
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: true })
 
     if (error) throw error;
 
@@ -159,7 +159,8 @@ export const db = {
     const { error } = await supabase
       .from('items')
       .update(updateData)
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', userId); // Add user_id check for RLS
 
     if (error) throw error;
   },
@@ -197,6 +198,31 @@ export const db = {
         content,
         user_id: userId,
       })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return dbNoteToNote(data);
+  },
+
+  async deleteNote(noteId: string, userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('notes')
+      .delete()
+      .eq('id', noteId)
+      .eq('user_id', userId);
+
+    if (error) throw error;
+  },
+
+  async updateNote(noteId: string, content: string, userId: string): Promise<Note> {
+    const { data, error } = await supabase
+      .from('notes')
+      .update({ 
+        content
+      })
+      .eq('id', noteId)
       .select()
       .single();
 
@@ -259,7 +285,7 @@ export const db = {
 };
 
 // Conversion helpers
-function dbListToList(dbList: DbList): List {
+export function dbListToList(dbList: DbList): List {
   return {
     id: dbList.id,
     name: dbList.name,
@@ -272,7 +298,7 @@ function dbListToList(dbList: DbList): List {
   };
 }
 
-function dbItemToItem(dbItem: DbItem & { notes?: DbNote[] }): Item {
+export function dbItemToItem(dbItem: DbItem & { notes?: DbNote[] }): Item {
   const base = {
     id: dbItem.id,
     title: dbItem.title,
@@ -304,7 +330,7 @@ function dbItemToItem(dbItem: DbItem & { notes?: DbNote[] }): Item {
   }
 }
 
-function dbNoteToNote(dbNote: DbNote): Note {
+export function dbNoteToNote(dbNote: DbNote): Note {
   return {
     id: dbNote.id,
     content: dbNote.content,

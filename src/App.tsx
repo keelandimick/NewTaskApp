@@ -9,13 +9,13 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  CollisionDetection,
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { Sidebar } from './components/Sidebar';
 import { TaskBoard } from './components/TaskBoard';
 import { TaskCard } from './components/TaskCard';
 import { Auth } from './components/Auth';
-import { Notes } from './components/Notes';
 import { useStoreWithAuth } from './store/useStoreWithAuth';
 import { useAuth } from './contexts/AuthContext';
 import { TaskStatus, ReminderStatus } from './types';
@@ -24,66 +24,74 @@ function App() {
   const { user, loading } = useAuth();
   const { updateItem, moveItem, getFilteredItems, currentView, currentListId, setSelectedItem, selectedItemId } = useStoreWithAuth();
   const [activeId, setActiveId] = React.useState<string | null>(null);
-  const [notesOpen, setNotesOpen] = React.useState(false);
-  const [notesHeight, setNotesHeight] = React.useState(300);
   const items = getFilteredItems();
+  const notesOpen = !!selectedItemId;
   
-  // Auto-open notes when an item is selected, close when none selected
+  // Deselect item when changing views or lists
   React.useEffect(() => {
-    if (selectedItemId && !notesOpen) {
-      setNotesOpen(true);
-    } else if (!selectedItemId && notesOpen) {
-      setNotesOpen(false);
-    }
-  }, [selectedItemId, notesOpen]);
-
-  // Scroll selected item into view when notes are open
-  React.useEffect(() => {
-    if (selectedItemId && notesOpen) {
-      // Small delay to ensure DOM updates
-      setTimeout(() => {
-        const selectedElement = document.querySelector(`[data-item-id="${selectedItemId}"]`);
-        if (selectedElement) {
-          const mainElement = document.querySelector('main');
-          if (mainElement) {
-            const elementRect = selectedElement.getBoundingClientRect();
-            const mainRect = mainElement.getBoundingClientRect();
-            const viewportHeight = window.innerHeight;
-            const availableHeight = viewportHeight - notesHeight - 100; // 100px for padding
-            
-            // Check if element is below the visible area or too close to notes
-            if (elementRect.bottom > availableHeight || elementRect.top > availableHeight - 100) {
-              const scrollTop = mainElement.scrollTop;
-              const elementOffsetTop = elementRect.top - mainRect.top + scrollTop;
-              const targetScrollTop = elementOffsetTop - 100; // Position 100px from top
-              
-              mainElement.scrollTo({
-                top: targetScrollTop,
-                behavior: 'smooth'
-              });
-            }
-            // Also check if element is too high up
-            else if (elementRect.top < mainRect.top + 50) {
-              const scrollTop = mainElement.scrollTop;
-              const elementOffsetTop = elementRect.top - mainRect.top + scrollTop;
-              const targetScrollTop = elementOffsetTop - 100;
-              
-              mainElement.scrollTo({
-                top: targetScrollTop,
-                behavior: 'smooth'
-              });
-            }
-          }
-        }
-      }, 100);
-    }
-  }, [selectedItemId, notesOpen, notesHeight]);
-  
-  // Close notes when changing views or lists
-  React.useEffect(() => {
-    setNotesOpen(false);
     setSelectedItem(null);
   }, [currentView, currentListId, setSelectedItem]);
+
+  // Handle escape key to close notes when input is not focused
+  React.useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedItemId) {
+        // Check if any input or textarea is currently focused
+        const activeElement = document.activeElement;
+        const isInputFocused = activeElement && (
+          activeElement.tagName === 'INPUT' || 
+          activeElement.tagName === 'TEXTAREA' ||
+          activeElement.getAttribute('contenteditable') === 'true'
+        );
+        
+        if (!isInputFocused) {
+          setSelectedItem(null);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [selectedItemId, setSelectedItem]);
+
+  // Handle arrow key navigation
+  React.useEffect(() => {
+    const handleArrowKeys = (e: KeyboardEvent) => {
+      if (!selectedItemId || currentView === 'trash' || currentView === 'complete') return;
+      
+      // Check if any input or textarea is currently focused
+      const activeElement = document.activeElement;
+      const isInputFocused = activeElement && (
+        activeElement.tagName === 'INPUT' || 
+        activeElement.tagName === 'TEXTAREA' ||
+        activeElement.getAttribute('contenteditable') === 'true'
+      );
+      
+      if (isInputFocused) return;
+      
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        
+        // Get the current index of selected item
+        const currentIndex = items.findIndex(item => item.id === selectedItemId);
+        if (currentIndex === -1) return;
+        
+        let newIndex = currentIndex;
+        if (e.key === 'ArrowUp') {
+          newIndex = Math.max(0, currentIndex - 1);
+        } else {
+          newIndex = Math.min(items.length - 1, currentIndex + 1);
+        }
+        
+        if (newIndex !== currentIndex && items[newIndex]) {
+          setSelectedItem(items[newIndex].id);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleArrowKeys);
+    return () => document.removeEventListener('keydown', handleArrowKeys);
+  }, [selectedItemId, setSelectedItem, items, currentView]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -92,6 +100,29 @@ function App() {
     })
   );
 
+  // Custom collision detection that prioritizes columns over items
+  const customCollisionDetection: CollisionDetection = (args) => {
+    const collisions = rectIntersection(args);
+    
+    // Define column IDs
+    const taskColumns = ['start', 'in-progress', 'complete'];
+    const reminderColumns = ['today', 'within7', '7plus', 'complete'];
+    const recurringColumns = ['daily', 'weekly', 'monthly', 'yearly'];
+    const allColumns = [...taskColumns, ...reminderColumns, ...recurringColumns, 'trash'];
+    
+    // If there are collisions with columns, prioritize them
+    const columnCollisions = collisions.filter(collision => 
+      allColumns.includes(collision.id as string) || 
+      (collision.id as string).startsWith('list-')
+    );
+    
+    if (columnCollisions.length > 0) {
+      return columnCollisions;
+    }
+    
+    // Otherwise return all collisions (items)
+    return collisions;
+  };
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string);
@@ -114,7 +145,7 @@ function App() {
       updateItem(itemId, { listId });
     } else {
       // Handle dropping on columns or cards
-      const taskColumns = ['start', 'waiting', 'complete'];
+      const taskColumns = ['start', 'in-progress', 'complete'];
       const reminderColumns = ['today', 'within7', '7plus', 'complete'];
       const recurringColumns = ['daily', 'weekly', 'monthly', 'yearly'];
       
@@ -185,24 +216,15 @@ function App() {
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={rectIntersection}
+      collisionDetection={customCollisionDetection}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
       <div className="flex h-screen bg-white">
         <Sidebar />
-        <main 
-          className="flex-1 overflow-hidden transition-all duration-300"
-          style={{ marginBottom: notesOpen ? `${notesHeight}px` : '48px' }}
-        >
-          <TaskBoard activeId={activeId} />
+        <main className="flex-1 overflow-hidden">
+          <TaskBoard activeId={activeId} notesOpen={notesOpen} />
         </main>
-        <Notes 
-          isOpen={notesOpen}
-          onToggle={() => setNotesOpen(!notesOpen)}
-          height={notesHeight}
-          onHeightChange={setNotesHeight}
-        />
       </div>
       
       <DragOverlay dropAnimation={null}>

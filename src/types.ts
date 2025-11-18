@@ -1,6 +1,6 @@
 export type Priority = 'now' | 'high' | 'low';
 
-export type TaskStatus = 'start' | 'waiting' | 'complete';
+export type TaskStatus = 'start' | 'in-progress' | 'complete';
 export type ReminderStatus = '7plus' | 'within7' | 'today' | 'complete';
 
 export interface Note {
@@ -54,7 +54,7 @@ export interface User {
   name: string;
 }
 
-export type ViewMode = 'tasks' | 'reminders' | 'recurring' | 'trash';
+export type ViewMode = 'tasks' | 'reminders' | 'recurring' | 'trash' | 'complete';
 
 export type RecurrenceFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
 

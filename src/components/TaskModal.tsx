@@ -19,6 +19,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
     updateItem, 
     deleteItem,
     addNote,
+    items,
     currentListId, 
     currentView, 
     setCurrentView, 
@@ -92,6 +93,20 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
 
   const handleSubmit = async () => {
     if (!title.trim()) return;
+    
+    // Check for duplicates (case insensitive) in active items only
+    const normalizedTitle = title.trim().toLowerCase();
+    const duplicateExists = items.some(item => 
+      !item.deletedAt && 
+      item.status !== 'complete' &&
+      item.title.toLowerCase() === normalizedTitle &&
+      (mode === 'create' || item.id !== editItem?.id) // Don't check against self when editing
+    );
+    
+    if (duplicateExists) {
+      alert('A task with this title already exists');
+      return;
+    }
     
     setIsProcessing(true);
 
@@ -226,8 +241,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
           targetView = 'tasks';
         }
 
-        // 2. If we were on "All" list, switch to the actual list
-        if (currentListId === 'all') {
+        // 2. Switch to the target list if it's different from current
+        if (currentListId !== targetListId) {
           setCurrentList(targetListId);
         }
 

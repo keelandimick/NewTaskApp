@@ -25,7 +25,7 @@ const priorityLabels: Record<Priority, string> = {
 };
 
 export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
-  const { deleteItem, updateItem, currentView, highlightedItemId, lists, selectedItemId, setSelectedItem, setCurrentView, setHighlightedItem } = useStoreWithAuth();
+  const { deleteItem, updateItem, currentView, highlightedItemId, lists, items, selectedItemId, setSelectedItem, setCurrentView, setHighlightedItem } = useStoreWithAuth();
   const [showEditModal, setShowEditModal] = React.useState(false);
   const [showPriorityOptions, setShowPriorityOptions] = React.useState(false);
   const [isEditing, setIsEditing] = React.useState(false);
@@ -74,7 +74,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
       );
       
       // Check for both Delete and Backspace keys
-      if (isSelected && (e.key === 'Delete' || e.key === 'Backspace') && !isEditing && !isTyping && currentView !== 'trash') {
+      if (isSelected && (e.key === 'Delete' || e.key === 'Backspace') && !isEditing && !isTyping && currentView !== 'trash' && currentView !== 'complete') {
         e.preventDefault();
         if (window.confirm(`Delete "${item.title}"?`)) {
           try {
@@ -113,8 +113,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
     }
   }, [showPriorityOptions, item.id]);
   
-  // Enable dragging for all views except trash
-  const isDraggable = currentView !== 'trash';
+  // Enable dragging for all views except trash and complete
+  const isDraggable = currentView !== 'trash' && currentView !== 'complete';
   
   const {
     attributes,
@@ -146,12 +146,27 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
       data-item-id={item.id}
     >
       <div 
-        className={`flex items-center py-2 px-2 ${currentView !== 'trash' ? 'cursor-pointer' : ''} border-b border-gray-100 transition-all duration-300 ${
+        className={`flex items-center py-2 px-2 ${currentView !== 'trash' && currentView !== 'complete' ? 'cursor-pointer' : ''} border-b border-gray-100 transition-all duration-300 ${
           isHighlighted ? 'bg-yellow-100 animate-pulse' : isSelected ? 'bg-gray-100' : 'hover:bg-gray-50'
         }`}
         onClick={(e) => {
-          // Prevent event from bubbling to parent container
           e.stopPropagation();
+          if (currentView !== 'trash' && currentView !== 'complete' && !isEditing) {
+            if (selectedItemId === item.id) {
+              // Click on already selected item - deselect it
+              setSelectedItem(null);
+            } else {
+              // Click on different item - select it
+              setSelectedItem(item.id);
+            }
+          }
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          if (currentView !== 'trash' && currentView !== 'complete') {
+            // Double click - enable inline editing without changing selection
+            setIsEditing(true);
+          }
         }}
       >
         {/* Drag handle - only show for tasks */}
@@ -170,34 +185,24 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
         {/* Main content */}
         <div 
           className="flex-1 ml-1"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (currentView !== 'trash' && !isEditing) {
-              if (selectedItemId === item.id) {
-                // Click on already selected item - deselect it
-                setSelectedItem(null);
-              } else {
-                // Click on different item - select it
-                setSelectedItem(item.id);
-              }
-            }
-          }}
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            if (currentView !== 'trash') {
-              // Double click - enable inline editing without changing selection
-              setIsEditing(true);
-            }
-          }}
         >
           <div className="flex items-center gap-2">
-            {/* List color dot - show for tasks, reminders, and recurring */}
+            {/* Completion circle - show for tasks, reminders, and recurring */}
             {(currentView === 'tasks' || currentView === 'reminders' || currentView === 'recurring') && item.listId && (() => {
               const list = lists.find(l => l.id === item.listId);
               return list ? (
-                <div 
-                  className="w-2 h-2 rounded-full flex-shrink-0" 
-                  style={{ backgroundColor: list.color }}
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      await updateItem(item.id, { status: 'complete' });
+                    } catch (error) {
+                      console.error('Failed to complete item:', error);
+                    }
+                  }}
+                  className="w-3 h-3 rounded-full flex-shrink-0 border-2 hover:bg-gray-100 transition-colors" 
+                  style={{ borderColor: list.color }}
+                  title="Mark as complete"
                 />
               ) : null;
             })()}
@@ -290,6 +295,22 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
                       updates.title = finalTitle;
                     }
                     
+                    // Check for duplicates (case insensitive) in active items only
+                    const normalizedTitle = finalTitle.toLowerCase();
+                    const duplicateExists = items.some(otherItem => 
+                      !otherItem.deletedAt && 
+                      otherItem.status !== 'complete' &&
+                      otherItem.title.toLowerCase() === normalizedTitle &&
+                      otherItem.id !== item.id // Don't check against self
+                    );
+                    
+                    if (duplicateExists) {
+                      alert('A task with this title already exists');
+                      setIsEditing(false);
+                      setEditTitle(item.title); // Reset to original title
+                      return;
+                    }
+                    
                     try {
                       await updateItem(item.id, updates);
                       setIsEditing(false);
@@ -374,6 +395,22 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
                       if (finalTitle.length > 0) {
                         finalTitle = finalTitle.charAt(0).toUpperCase() + finalTitle.slice(1);
                         updates.title = finalTitle;
+                      }
+                      
+                      // Check for duplicates (case insensitive) in active items only
+                      const normalizedTitle = finalTitle.toLowerCase();
+                      const duplicateExists = items.some(otherItem => 
+                        !otherItem.deletedAt && 
+                        otherItem.status !== 'complete' &&
+                        otherItem.title.toLowerCase() === normalizedTitle &&
+                        otherItem.id !== item.id // Don't check against self
+                      );
+                      
+                      if (duplicateExists) {
+                        alert('A task with this title already exists');
+                        setEditTitle(item.title); // Reset to original title
+                        setIsEditing(false);
+                        return;
                       }
                       
                       try {
@@ -503,41 +540,51 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
           )}
         </div>
 
-        {/* Priority badge container */}
-        {currentView !== 'trash' && (
-          <div className={`relative priority-options-${item.id}`}>
-              {showPriorityOptions && (
-                <div className="absolute right-0 top-6 z-10 flex gap-1 bg-white rounded-lg shadow-lg p-1">
-                  {(['now', 'high', 'low'] as Priority[]).map((priority) => (
-                    <button
-                      key={priority}
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        setShowPriorityOptions(false);
-                        try {
-                          await updateItem(item.id, { priority });
-                        } catch (error) {
-                          console.error('Failed to update priority:', error);
-                        }
-                      }}
-                      className={`text-[10px] font-medium text-white px-1.5 py-0.5 rounded-full cursor-pointer transition-all ${
-                        item.priority === priority ? 'ring-2 ring-gray-400' : ''
-                      } ${priorityColors[priority]}`}
-                    >
-                      {priorityLabels[priority]}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowPriorityOptions(true);
-                }}
-                className={`text-[10px] font-medium text-white px-1.5 py-0.5 rounded-full cursor-pointer hover:ring-2 hover:ring-gray-300 transition-all ml-2 ${priorityColors[item.priority]}`}
-              >
-                {priorityLabels[item.priority]}
-              </button>
+        {/* Notes indicator and Priority badge container */}
+        {currentView !== 'trash' && currentView !== 'complete' && (
+          <div className="flex items-center gap-2">
+            {/* Notes indicator */}
+            {item.notes.length > 0 && (
+              <span className="text-base" title={`${item.notes.length} note${item.notes.length === 1 ? '' : 's'}`}>
+                📝
+              </span>
+            )}
+            
+            {/* Priority badge */}
+            <div className={`relative priority-options-${item.id}`}>
+                {showPriorityOptions && (
+                  <div className="absolute right-0 top-6 z-10 flex gap-1 bg-white rounded-lg shadow-lg p-1">
+                    {(['now', 'high', 'low'] as Priority[]).map((priority) => (
+                      <button
+                        key={priority}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          setShowPriorityOptions(false);
+                          try {
+                            await updateItem(item.id, { priority });
+                          } catch (error) {
+                            console.error('Failed to update priority:', error);
+                          }
+                        }}
+                        className={`text-[10px] font-medium text-white px-1.5 py-0.5 rounded-full cursor-pointer transition-all ${
+                          item.priority === priority ? 'ring-2 ring-gray-400' : ''
+                        } ${priorityColors[priority]}`}
+                      >
+                        {priorityLabels[priority]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowPriorityOptions(true);
+                  }}
+                  className={`text-[10px] font-medium text-white px-1.5 py-0.5 rounded-full cursor-pointer hover:ring-2 hover:ring-gray-300 transition-all ${priorityColors[item.priority]}`}
+                >
+                  {priorityLabels[item.priority]}
+                </button>
+            </div>
           </div>
         )}
       </div>

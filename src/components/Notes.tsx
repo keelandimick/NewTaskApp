@@ -1,23 +1,21 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { useStoreWithAuth } from '../store/useStoreWithAuth';
 import { format } from 'date-fns';
 import { processTextWithAI, renderTextWithLinks } from '../lib/ai';
 
 interface NotesProps {
   isOpen: boolean;
-  onToggle: () => void;
-  height: number;
-  onHeightChange: (height: number) => void;
 }
 
-export const Notes: React.FC<NotesProps> = ({ isOpen, onToggle, height, onHeightChange }) => {
-  const { selectedItemId, items, addNote, updateItem } = useStoreWithAuth();
-  const [isDragging, setIsDragging] = useState(false);
+export const Notes: React.FC<NotesProps> = ({ isOpen }) => {
+  const { selectedItemId, items, addNote, deleteNote, updateNote, updateItem } = useStoreWithAuth();
   const [noteInput, setNoteInput] = useState('');
   const [showOnHoldIndicator, setShowOnHoldIndicator] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState('');
+  const [isEditProcessing, setIsEditProcessing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const startYRef = useRef<number>(0);
-  const startHeightRef = useRef<number>(0);
 
   const selectedItem = items.find(item => item.id === selectedItemId);
   
@@ -38,44 +36,14 @@ export const Notes: React.FC<NotesProps> = ({ isOpen, onToggle, height, onHeight
       ? mostRecentHoldNote 
       : null;
       
-  const onHoldReason = onHoldNote ? 
+  const holdReason = onHoldNote ? 
     onHoldNote.content.replace(/^on hold[:\s-]*/i, '').trim() || 'No reason provided' : 
     null;
 
-  // Handle drag to resize
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    startYRef.current = e.clientY;
-    startHeightRef.current = height;
-    e.preventDefault();
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return;
-      
-      const deltaY = startYRef.current - e.clientY;
-      const newHeight = Math.max(100, Math.min(500, startHeightRef.current + deltaY));
-      onHeightChange(newHeight);
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, onHeightChange]);
-
   const handleAddNote = async () => {
     if (!noteInput.trim() || !selectedItem) return;
+    
+    setIsProcessing(true);
     
     try {
       let processedNote = noteInput.trim();
@@ -92,190 +60,282 @@ export const Notes: React.FC<NotesProps> = ({ isOpen, onToggle, height, onHeight
       
       await addNote(selectedItem.id, processedNote);
       
-      // If this is the first note being added to a task in the "start" column, move it to "waiting" (In Progress)
+      // If this is the first note being added to a task in the "start" column, move it to "in-progress"
       if (selectedItem.type === 'task' && selectedItem.status === 'start' && selectedItem.notes.length === 0) {
-        await updateItem(selectedItem.id, { status: 'waiting' });
+        await updateItem(selectedItem.id, { status: 'in-progress' });
       }
       
       setNoteInput('');
       setShowOnHoldIndicator(false);
     } catch (error) {
       console.error('Failed to add note:', error);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  if (!isOpen) {
-    return (
-      <button
-        onClick={onToggle}
-        className="fixed bottom-0 left-64 right-0 bg-gray-100 border-t border-gray-300 px-6 py-2 text-sm text-gray-600 hover:bg-gray-200 transition-colors flex items-center justify-center"
-      >
-        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-        </svg>
-        Notes {selectedItem ? `for "${selectedItem.title}"` : '(select an item)'}
-      </button>
-    );
-  }
+  // Notes should always be shown when this component is rendered
+  if (!isOpen) return null;
 
   return (
     <div
       ref={containerRef}
-      className="fixed bottom-0 left-64 right-0 bg-white border-t border-gray-300 shadow-lg"
-      style={{ height: `${height}px` }}
+      className="flex-1 flex flex-col bg-yellow-50"
+      onClick={(e) => e.stopPropagation()}
     >
-      {/* Drag handle */}
-      <div
-        className="absolute top-0 left-0 right-0 h-1 bg-gray-300 hover:bg-gray-400 cursor-ns-resize"
-        onMouseDown={handleMouseDown}
-      />
-      
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-800">
-          {selectedItem ? `Notes for "${selectedItem.title}"` : 'Notes'}
-        </h3>
-        <button
-          onClick={onToggle}
-          className="text-gray-500 hover:text-gray-700"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+      <div className="flex items-center justify-between px-3 py-2 border-b border-yellow-200 bg-yellow-100">
+        <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-1">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
           </svg>
-        </button>
+          Notes
+        </h3>
+        <span className="text-xs text-gray-500 font-medium">{selectedItem?.notes.length || 0}</span>
       </div>
 
       {/* Content */}
-      <div className="flex flex-col" style={{ height: `calc(${height}px - 60px)` }}>
+      <div className="flex flex-col flex-1">
         {selectedItem ? (
           <>
+            {/* Selected item info */}
+            <div className="px-3 py-2 bg-white border-b border-gray-200 shadow-sm">
+              <div className="text-sm font-medium text-gray-900">{selectedItem.title}</div>
+            </div>
+
             {/* Notes list */}
-            <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
-              {/* On Hold Status Display */}
-              {onHoldNote && (
-                <div className="mb-4 bg-red-100 border border-red-400 rounded-lg p-4">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm text-gray-700 mb-2">{onHoldReason}</p>
-                      <p className="text-lg font-bold text-red-600">ON HOLD</p>
-                    </div>
-                    <button
-                      onClick={async () => {
-                        try {
-                          await addNote(selectedItem.id, `OFF HOLD`);
-                          // Force a re-render by clearing and resetting the note input
-                          setNoteInput('');
-                        } catch (error) {
-                          console.error('Failed to remove on hold status:', error);
-                        }
-                      }}
-                      className="text-red-600 hover:text-red-800"
-                      title="Remove ON HOLD status"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              )}
-              
-              {selectedItem.notes.length === 0 ? (
-                <p className="text-gray-500 text-sm">No notes yet. Add one below!</p>
-              ) : (
+            <div className="flex-1 overflow-y-auto px-3 py-3">
+              {selectedItem.notes.length > 0 ? (
                 <div className="space-y-3">
-                  {selectedItem.notes
-                    .filter(note => {
-                      // Hide ON HOLD and OFF HOLD notes since they're system notes
-                      const isOnHold = note.content.toLowerCase().startsWith('on hold');
-                      const isOffHold = note.content.toLowerCase() === 'off hold';
-                      return !isOnHold && !isOffHold;
-                    })
-                    .map((note) => (
-                    <div key={note.id} className="bg-gray-50 rounded-lg p-3">
-                      <p className="text-sm text-gray-800">{renderTextWithLinks(note.content)}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {format(new Date(note.timestamp), 'MMM d, h:mm a')}
-                      </p>
-                    </div>
-                  ))}
+                  {selectedItem.notes.sort((a, b) => 
+                    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                  ).map((note, index) => {
+                    const isOnHoldNote = note.content.toLowerCase().startsWith('on hold') || note.content.toLowerCase() === 'off hold';
+                    const noteContent = isOnHoldNote ? note.content : renderTextWithLinks(note.content);
+                    
+                    return (
+                      <div key={note.id} className="text-sm group">
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1 bg-white rounded-lg p-3 shadow-sm border border-gray-100 relative">
+                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              {editingNoteId !== note.id && (
+                                <button
+                                  onClick={() => {
+                                    setEditingNoteId(note.id);
+                                    setEditingContent(note.content);
+                                  }}
+                                  className="text-gray-400 hover:text-blue-600"
+                                  title="Edit note"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                  </svg>
+                                </button>
+                              )}
+                              <button
+                                onClick={async () => {
+                                  if (window.confirm(isOnHoldNote && note.content.toLowerCase() !== 'off hold' 
+                                    ? 'Delete this ON HOLD status?' 
+                                    : 'Delete this note?')) {
+                                    try {
+                                      if (selectedItemId) {
+                                        await deleteNote(selectedItemId, note.id);
+                                      }
+                                    } catch (error) {
+                                      console.error('Failed to delete note:', error);
+                                    }
+                                  }
+                                }}
+                                className="text-gray-400 hover:text-red-600"
+                                title="Delete note"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </div>
+                            
+                            {editingNoteId === note.id ? (
+                              <div>
+                                <textarea
+                                  value={editingContent}
+                                  onChange={(e) => setEditingContent(e.target.value)}
+                                  ref={(textarea) => {
+                                    if (textarea) {
+                                      textarea.focus();
+                                      // Move cursor to end
+                                      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+                                    }
+                                  }}
+                                  onKeyDown={async (e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                      e.preventDefault();
+                                      if (editingContent.trim() && selectedItemId && !isEditProcessing) {
+                                        setIsEditProcessing(true);
+                                        try {
+                                          const processedContent = editingContent.trim();
+                                          
+                                          // Skip AI processing for edits
+                                          await updateNote(selectedItemId, note.id, processedContent);
+                                          // Only clear the edit state after successful update
+                                          setEditingNoteId(null);
+                                          setEditingContent('');
+                                        } catch (error) {
+                                          console.error('Failed to update note:', error);
+                                          alert('Failed to update note. Please try again.');
+                                        } finally {
+                                          setIsEditProcessing(false);
+                                        }
+                                      }
+                                    } else if (e.key === 'Escape') {
+                                      setEditingNoteId(null);
+                                      setEditingContent('');
+                                    }
+                                  }}
+                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                                  rows={3}
+                                  autoFocus
+                                />
+                                <div className="flex gap-2 mt-2">
+                                  <button
+                                    onClick={async () => {
+                                      if (editingContent.trim() && selectedItemId && !isEditProcessing) {
+                                        setIsEditProcessing(true);
+                                        try {
+                                          const processedContent = editingContent.trim();
+                                          
+                                          // Skip AI processing for edits
+                                          await updateNote(selectedItemId, note.id, processedContent);
+                                          // Only clear the edit state after successful update
+                                          setEditingNoteId(null);
+                                          setEditingContent('');
+                                        } catch (error) {
+                                          console.error('Failed to update note:', error);
+                                          alert('Failed to update note. Please try again.');
+                                        } finally {
+                                          setIsEditProcessing(false);
+                                        }
+                                      }
+                                    }}
+                                    disabled={isEditProcessing || !editingContent.trim()}
+                                    className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                  >
+                                    {isEditProcessing ? 'Saving...' : 'Save'}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setEditingNoteId(null);
+                                      setEditingContent('');
+                                    }}
+                                    className="px-2 py-1 text-xs text-gray-600 hover:text-gray-800"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                {isOnHoldNote && note.content.toLowerCase() !== 'off hold' ? (
+                                  <div className="pr-14">
+                                    <span className="text-xs font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded">
+                                      ON HOLD
+                                    </span>
+                                    <span className="text-gray-700 ml-2">
+                                      {note.content.replace(/^on hold[:\s-]*/i, '').trim() || 'No reason provided'}
+                                    </span>
+                                  </div>
+                                ) : isOnHoldNote && note.content.toLowerCase() === 'off hold' ? (
+                                  <p className="text-gray-700 font-medium pr-14">
+                                    <span className="text-green-600">✅ </span>
+                                    {noteContent}
+                                  </p>
+                                ) : (
+                                  <p className="text-gray-700 pr-14">{noteContent}</p>
+                                )}
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {format(new Date(note.timestamp), 'MMM d, h:mm a')}
+                                </p>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
+              ) : (
+                <p className="text-gray-500 text-sm">No notes yet. Add one below.</p>
               )}
             </div>
 
-            {/* Add note input */}
-            <div className="px-6 py-4 border-t border-gray-200 bg-white">
-              <div className="flex gap-2">
-                <div className="flex-1 relative">
-                  {showOnHoldIndicator ? (
-                    <div className="flex items-center gap-2 px-3 py-2 border border-red-400 rounded-lg">
-                      <span 
-                        className="bg-red-100 text-red-600 text-xs font-bold px-2 py-1 rounded cursor-pointer" 
-                        onClick={() => {
-                          setNoteInput('');
-                          setShowOnHoldIndicator(false);
-                        }}
-                        title="Click to cancel ON HOLD"
-                      >
-                        ON HOLD
-                      </span>
-                      <input
-                        type="text"
-                        value={noteInput.replace(/^on hold[\s:-]*/i, '')}
-                        onChange={(e) => {
-                          setNoteInput('on hold: ' + e.target.value);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleAddNote();
-                          } else if (e.key === 'Escape' || (e.key === 'Backspace' && e.currentTarget.value === '')) {
-                            setNoteInput('');
-                            setShowOnHoldIndicator(false);
-                          }
-                        }}
-                        placeholder="reason (optional)..."
-                        className="flex-1 outline-none bg-transparent"
-                        autoFocus
-                        spellCheck="true"
-                      />
-                    </div>
-                  ) : (
-                    <input
-                      type="text"
-                      value={noteInput}
-                      onChange={(e) => {
-                        setNoteInput(e.target.value);
-                        // Check if input starts with "on hold"
-                        setShowOnHoldIndicator(e.target.value.toLowerCase().startsWith('on hold'));
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleAddNote();
-                        }
-                      }}
-                      placeholder="Add a note... (try 'on hold' to pause a task)"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      spellCheck="true"
-                    />
+            {/* Note input */}
+            <div className="px-3 py-3 border-t border-gray-300 bg-white">
+              <form onSubmit={(e) => { e.preventDefault(); handleAddNote(); }} className="flex gap-2">
+                <div className="flex-1 flex items-center gap-2 px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-blue-500 bg-gray-50">
+                  {showOnHoldIndicator && (
+                    <span className="text-xs font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded whitespace-nowrap">
+                      ON HOLD
+                    </span>
                   )}
+                  <input
+                    type="text"
+                    value={showOnHoldIndicator ? noteInput.replace(/^on hold\s*/i, '') : noteInput}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (showOnHoldIndicator) {
+                        setNoteInput('on hold ' + value);
+                      } else {
+                        setNoteInput(value);
+                        if (value.toLowerCase() === 'on hold') {
+                          setShowOnHoldIndicator(true);
+                          setNoteInput('on hold ');
+                        }
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      // Handle backspace when at the beginning with ON HOLD tag
+                      if (e.key === 'Backspace' && showOnHoldIndicator && e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
+                        e.preventDefault();
+                        setNoteInput('');
+                        setShowOnHoldIndicator(false);
+                      }
+                      // Handle escape to remove ON HOLD tag
+                      if (e.key === 'Escape' && showOnHoldIndicator) {
+                        e.preventDefault();
+                        setNoteInput('');
+                        setShowOnHoldIndicator(false);
+                      }
+                    }}
+                    placeholder={showOnHoldIndicator ? "reason for on hold" : 'Add a note... (Try typing "on hold")'}
+                    disabled={isProcessing}
+                    className="flex-1 bg-transparent border-none outline-none focus:outline-none p-0 disabled:opacity-50"
+                  />
                 </div>
                 <button
-                  onClick={() => {
-                    handleAddNote();
-                    setShowOnHoldIndicator(false);
-                  }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  type="submit"
+                  disabled={!noteInput.trim() || isProcessing}
+                  className="px-3 py-1.5 text-sm bg-gray-700 text-white rounded-lg hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
-                  Add
+                  {isProcessing ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      <span>Processing...</span>
+                    </>
+                  ) : (
+                    'Add'
+                  )}
                 </button>
-              </div>
+              </form>
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-500">
-            <p>Select an item to view and add notes</p>
+          <div className="flex-1 flex items-center justify-center px-3">
+            <p className="text-gray-500 text-center text-sm">
+              Select an item to view and add notes
+            </p>
           </div>
         )}
       </div>

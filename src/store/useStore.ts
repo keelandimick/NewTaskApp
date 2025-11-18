@@ -12,6 +12,7 @@ interface Store {
   highlightedItemId: string | null;
   loading: boolean;
   error: string | null;
+  recentlyUpdatedItems: Set<string>;
   
   loadData: (userId: string) => Promise<void>;
   addItem: (item: Omit<Item, 'id' | 'createdAt' | 'updatedAt' | 'notes'>, userId: string) => Promise<string>;
@@ -24,6 +25,8 @@ interface Store {
   reorderItems: (activeId: string, overId: string) => void;
   
   addNote: (itemId: string, content: string, userId: string) => Promise<void>;
+  deleteNote: (itemId: string, noteId: string, userId: string) => Promise<void>;
+  updateNote: (itemId: string, noteId: string, content: string, userId: string) => Promise<void>;
   
   addList: (list: Omit<List, 'id' | 'createdAt' | 'updatedAt'>, userId: string) => Promise<void>;
   updateList: (id: string, updates: Partial<List>, userId: string) => Promise<void>;
@@ -48,6 +51,7 @@ export const useStore = create<Store>((set, get) => ({
   highlightedItemId: null,
   loading: false,
   error: null,
+  recentlyUpdatedItems: new Set<string>(),
   
   loadData: async (userId: string) => {
     set({ loading: true, error: null });
@@ -88,9 +92,21 @@ export const useStore = create<Store>((set, get) => ({
         selectedListId = 'all';
       }
       
+      // Merge items intelligently - don't overwrite recently updated items
+      const recentlyUpdated = currentState.recentlyUpdatedItems;
+      
+      const mergedItems = items.map(dbItem => {
+        // If this item was recently updated locally, keep the local version
+        if (recentlyUpdated.has(dbItem.id)) {
+          const localItem = currentState.items.find(i => i.id === dbItem.id);
+          return localItem || dbItem;
+        }
+        return dbItem;
+      });
+      
       set({ 
         lists, 
-        items,
+        items: mergedItems,
         currentListId: selectedListId,
         loading: false 
       });
@@ -123,14 +139,29 @@ export const useStore = create<Store>((set, get) => ({
   updateItem: async (id, updates, userId) => {
     set({ error: null });
     try {
-      // First update the local state optimistically
-      set((state) => ({
-        items: state.items.map((item) =>
-          item.id === id
-            ? { ...item, ...updates, updatedAt: new Date() } as Item
-            : item
-        ),
-      }));
+      // First update the local state optimistically and track it
+      set((state) => {
+        const newRecentlyUpdated = new Set(state.recentlyUpdatedItems);
+        newRecentlyUpdated.add(id);
+        
+        // Clear this item from recently updated after 20 seconds
+        setTimeout(() => {
+          set((s) => {
+            const updated = new Set(s.recentlyUpdatedItems);
+            updated.delete(id);
+            return { recentlyUpdatedItems: updated };
+          });
+        }, 20000);
+        
+        return {
+          items: state.items.map((item) =>
+            item.id === id
+              ? { ...item, ...updates, updatedAt: new Date() } as Item
+              : item
+          ),
+          recentlyUpdatedItems: newRecentlyUpdated
+        };
+      });
       
       // Then update the database
       await db.updateItem(id, updates, userId);
@@ -168,6 +199,8 @@ export const useStore = create<Store>((set, get) => ({
             ? { ...item, deletedAt: now, updatedAt: now }
             : item
         ),
+        // Clear selected item if it's the one being deleted
+        selectedItemId: state.selectedItemId === id ? null : state.selectedItemId
       }));
     } catch (error) {
       console.error('Failed to delete item:', error);
@@ -215,6 +248,8 @@ export const useStore = create<Store>((set, get) => ({
       
       set((state) => ({
         items: state.items.filter((item) => item.id !== id),
+        // Clear selected item if it's the one being deleted
+        selectedItemId: state.selectedItemId === id ? null : state.selectedItemId
       }));
     } catch (error) {
       console.error('Failed to permanently delete item:', error);
@@ -226,15 +261,21 @@ export const useStore = create<Store>((set, get) => ({
   emptyTrash: async (userId) => {
     set({ error: null });
     try {
-      const trashedItems = get().items.filter(item => item.deletedAt != null);
+      const state = get();
+      const trashedItems = state.items.filter(item => item.deletedAt != null);
       
       // Delete all trashed items
       await Promise.all(
         trashedItems.map(item => db.deleteItem(item.id, userId))
       );
       
+      // Check if selected item is in trash
+      const selectedItemInTrash = trashedItems.some(item => item.id === state.selectedItemId);
+      
       set((state) => ({
         items: state.items.filter((item) => !item.deletedAt),
+        // Clear selected item if it was in trash
+        selectedItemId: selectedItemInTrash ? null : state.selectedItemId
       }));
     } catch (error) {
       console.error('Failed to empty trash:', error);
@@ -246,6 +287,9 @@ export const useStore = create<Store>((set, get) => ({
   moveItem: async (itemId, newStatus, userId) => {
     const item = get().items.find((i) => i.id === itemId);
     if (!item) return;
+    
+    // Don't update if the status hasn't changed
+    if (item.status === newStatus) return;
     
     const updates: any = { status: newStatus };
     
@@ -288,6 +332,50 @@ export const useStore = create<Store>((set, get) => ({
     } catch (error) {
       console.error('Failed to add note:', error);
       set({ error: error instanceof Error ? error.message : 'Failed to add note' });
+      throw error;
+    }
+  },
+
+  deleteNote: async (itemId, noteId, userId) => {
+    const item = get().items.find((i) => i.id === itemId);
+    if (!item) return;
+    
+    set({ error: null });
+    try {
+      await db.deleteNote(noteId, userId);
+      
+      set((state) => ({
+        items: state.items.map((i) =>
+          i.id === itemId
+            ? { ...i, notes: i.notes.filter(n => n.id !== noteId) }
+            : i
+        ),
+      }));
+    } catch (error) {
+      console.error('Failed to delete note:', error);
+      set({ error: error instanceof Error ? error.message : 'Failed to delete note' });
+      throw error;
+    }
+  },
+
+  updateNote: async (itemId, noteId, content, userId) => {
+    const item = get().items.find((i) => i.id === itemId);
+    if (!item) return;
+    
+    set({ error: null });
+    try {
+      const updatedNote = await db.updateNote(noteId, content, userId);
+      
+      set((state) => ({
+        items: state.items.map((i) =>
+          i.id === itemId
+            ? { ...i, notes: i.notes.map(n => n.id === noteId ? updatedNote : n) }
+            : i
+        ),
+      }));
+    } catch (error) {
+      console.error('Failed to update note:', error);
+      set({ error: error instanceof Error ? error.message : 'Failed to update note' });
       throw error;
     }
   },
@@ -407,6 +495,10 @@ export const useStore = create<Store>((set, get) => ({
     // For trash view, show all deleted items
     if (currentView === 'trash') {
       filteredItems = items.filter(item => item.deletedAt != null);
+    }
+    // For complete view, show all completed items (not deleted)
+    else if (currentView === 'complete') {
+      filteredItems = items.filter(item => item.status === 'complete' && !item.deletedAt);
     }
     // For reminders and recurring views, filter by current list
     else if (currentView === 'reminders' || currentView === 'recurring') {

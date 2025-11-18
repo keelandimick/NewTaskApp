@@ -47,8 +47,8 @@ export const TaskColumn: React.FC<TaskColumnProps> = ({ title, items, columnId, 
 
   // Determine if this column should accept drops
   const isDropDisabled = (() => {
-    if (currentView === 'trash') {
-      return true; // No drops in trash
+    if (currentView === 'trash' || currentView === 'complete') {
+      return true; // No drops in trash or complete
     } else if (currentView === 'tasks') {
       return false; // Tasks can drop anywhere
     } else if (currentView === 'reminders' || currentView === 'recurring') {
@@ -106,6 +106,20 @@ export const TaskColumn: React.FC<TaskColumnProps> = ({ title, items, columnId, 
       return;
     }
 
+    // Check for duplicates (case insensitive) in active items only
+    const normalizedTitle = newItemTitle.trim().toLowerCase();
+    const duplicateExists = allItems.some(item => 
+      !item.deletedAt && 
+      item.status !== 'complete' &&
+      item.title.toLowerCase() === normalizedTitle
+    );
+    
+    if (duplicateExists) {
+      alert('A task with this title already exists');
+      setIsAddingItem(false);
+      return;
+    }
+
     try {
       await addItem({
         type: 'task',
@@ -136,8 +150,8 @@ export const TaskColumn: React.FC<TaskColumnProps> = ({ title, items, columnId, 
   return (
     <div
       ref={setNodeRef}
-      className={`flex-1 flex flex-col transition-colors relative ${
-        isOver ? 'bg-blue-50' : ''
+      className={`flex-1 flex flex-col transition-all relative ${
+        isOver ? 'bg-blue-50 scale-[1.01]' : ''
       }`}
     >
       <div className={`flex justify-between items-center px-3 py-2 border-b ${
@@ -147,9 +161,9 @@ export const TaskColumn: React.FC<TaskColumnProps> = ({ title, items, columnId, 
         <span className="text-xs text-gray-400">{items.length}</span>
       </div>
 
-      {/* Invisible drop overlay that sits above everything when dragging */}
+      {/* Drop indicator border when hovering over column */}
       {isOver && (
-        <div className="absolute inset-0 bg-blue-100 opacity-30 pointer-events-none z-10" />
+        <div className="absolute inset-0 border-2 border-blue-400 bg-blue-50 bg-opacity-20 pointer-events-none z-10 rounded-lg" />
       )}
 
       <SortableContext items={items.map(item => item.id)} strategy={verticalListSortingStrategy}>

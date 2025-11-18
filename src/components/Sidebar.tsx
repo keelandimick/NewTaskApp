@@ -309,7 +309,7 @@ const DroppableListItem: React.FC<DroppableListItemProps> = ({ list, isActive, o
 };
 
 export const Sidebar: React.FC = () => {
-  const { lists, currentListId, setCurrentList, currentView, setCurrentView, addList, deleteList, items, loading, addItem, signOut, deleteItem } = useStoreWithAuth();
+  const { lists, currentListId, setCurrentList, currentView, setCurrentView, addList, deleteList, items, loading, addItem, deleteItem } = useStoreWithAuth();
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [isImporting, setIsImporting] = React.useState(false);
   const [importProgress, setImportProgress] = React.useState(0);
@@ -372,8 +372,20 @@ export const Sidebar: React.FC = () => {
         // Import Chrono for date parsing
         const customChrono = (await import('../lib/chronoConfig')).default;
         
-        // Add all tasks in parallel for better performance
-        const addPromises = extractedTasks.map(task => {
+        // Filter out duplicates before adding (exclude completed items)
+        const existingTitles = new Set(
+          items.filter(item => !item.deletedAt && item.status !== 'complete')
+            .map(item => item.title.toLowerCase())
+        );
+        
+        const uniqueTasks = extractedTasks.filter(task => 
+          !existingTitles.has(task.title.toLowerCase())
+        );
+        
+        const skippedCount = extractedTasks.length - uniqueTasks.length;
+        
+        // Add all unique tasks in parallel for better performance
+        const addPromises = uniqueTasks.map(task => {
           let type: 'task' | 'reminder' = 'task';
           let title = task.title;
           let reminderDate = null;
@@ -446,7 +458,11 @@ export const Sidebar: React.FC = () => {
         await Promise.all(addPromises);
         
         setImportProgress(100); // Complete
-        alert(`Successfully imported ${extractedTasks.length} tasks!`);
+        if (skippedCount > 0) {
+          alert(`Successfully imported ${uniqueTasks.length} tasks! (${skippedCount} duplicates skipped)`);
+        } else {
+          alert(`Successfully imported ${uniqueTasks.length} tasks!`);
+        }
       };
       
       reader.readAsDataURL(file);
@@ -517,10 +533,10 @@ export const Sidebar: React.FC = () => {
                   createdAt: new Date(),
                   updatedAt: new Date()
                 } as any}
-                isActive={currentListId === 'all' && currentView !== 'trash'}
+                isActive={currentListId === 'all' && currentView !== 'trash' && currentView !== 'complete'}
                 onSelect={() => {
                   setCurrentList('all');
-                  if (currentView === 'trash') setCurrentView('tasks');
+                  if (currentView === 'trash' || currentView === 'complete') setCurrentView('tasks');
                 }}
               />
             )}
@@ -530,10 +546,10 @@ export const Sidebar: React.FC = () => {
               <DroppableListItem
                 key={list.id}
                 list={list}
-                isActive={currentListId === list.id && currentView !== 'trash'}
+                isActive={currentListId === list.id && currentView !== 'trash' && currentView !== 'complete'}
                 onSelect={() => {
                   setCurrentList(list.id);
-                  if (currentView === 'trash') setCurrentView('tasks');
+                  if (currentView === 'trash' || currentView === 'complete') setCurrentView('tasks');
                 }}
                 onDelete={list.id !== 'default' ? async () => {
                   const listTasks = items.filter(item => item.listId === list.id);
@@ -563,8 +579,11 @@ export const Sidebar: React.FC = () => {
                   <DroppableListItem
                     key={list.id}
                     list={list}
-                    isActive={currentListId === list.id}
-                    onSelect={() => setCurrentList(list.id)}
+                    isActive={currentListId === list.id && currentView !== 'trash' && currentView !== 'complete'}
+                    onSelect={() => {
+                      setCurrentList(list.id);
+                      if (currentView === 'trash' || currentView === 'complete') setCurrentView('tasks');
+                    }}
                     onDelete={list.id !== 'default' ? async () => {
                       const listTasks = items.filter(item => item.listId === list.id);
                       const message = listTasks.length > 0
@@ -587,8 +606,23 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-      {/* Trash tab at the bottom */}
+      {/* Complete and Trash tabs at the bottom */}
       <div className="mt-auto px-4 space-y-2">
+        <button
+          onClick={() => {
+            setCurrentView('complete');
+            setCurrentList(''); // Clear the selected list when complete is selected
+          }}
+          className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
+            currentView === 'complete'
+              ? 'bg-green-100 text-green-700'
+              : 'text-gray-700 hover:bg-gray-100'
+          }`}
+        >
+          <span className="mr-2">✓</span>
+          Complete
+        </button>
+        
         <button
           onClick={() => {
             setCurrentView('trash');
@@ -604,13 +638,13 @@ export const Sidebar: React.FC = () => {
           Trash
         </button>
         
-        {/* Settings button */}
+        {/* Things button */}
         <button
           onClick={() => setShowSettingsModal(true)}
           className="w-full text-left px-3 py-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
         >
           <span className="mr-2">⚙️</span>
-          Settings
+          Things
         </button>
       </div>
       
@@ -625,14 +659,14 @@ export const Sidebar: React.FC = () => {
         defaultColumn="start"
       />
       
-      {/* Settings Modal */}
+      {/* Things Modal */}
       {showSettingsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" onClick={() => setShowSettingsModal(false)}>
           <div 
             className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold mb-4">Settings</h3>
+            <h3 className="text-lg font-semibold mb-4">Things</h3>
             
             <div className="space-y-4">
               {/* Import from Image/PDF */}
@@ -683,19 +717,6 @@ export const Sidebar: React.FC = () => {
                   />
                 </label>
               </div>
-              
-              {/* Sign Out button */}
-              <button
-                onClick={async () => {
-                  if (window.confirm('Are you sure you want to sign out?')) {
-                    await signOut();
-                  }
-                }}
-                className="w-full px-4 py-2 text-left rounded-lg text-gray-700 hover:bg-gray-100 transition-colors flex items-center"
-              >
-                <span className="mr-2">🚪</span>
-                Sign Out
-              </button>
               
               {/* Clear Data button */}
               <button
