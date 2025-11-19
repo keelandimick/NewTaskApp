@@ -149,6 +149,7 @@ export const useStoreWithAuth = () => {
     highlightedItemId: store.highlightedItemId,
     loading: store.loading,
     error: store.error,
+    searchQuery: store.searchQuery,
 
     // Functions that need userId
     addItem,
@@ -175,7 +176,9 @@ export const useStoreWithAuth = () => {
     setCurrentView: store.setCurrentView,
     setSelectedItem: store.setSelectedItem,
     setHighlightedItem: store.setHighlightedItem,
+    setSearchQuery: store.setSearchQuery,
     getFilteredItems: store.getFilteredItems,
+    searchItems: store.searchItems,
 
     // Utility
     isAuthenticated: !!userId,

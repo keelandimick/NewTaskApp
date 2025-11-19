@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { useStoreWithAuth } from '../store/useStoreWithAuth';
 import { TaskModal } from './TaskModal';
+import { useAuth } from '../contexts/AuthContext';
 
 interface DroppableListItemProps {
   list: any;
@@ -310,16 +311,23 @@ const DroppableListItem: React.FC<DroppableListItemProps> = ({ list, isActive, o
 
 export const Sidebar: React.FC = () => {
   const { lists, currentListId, setCurrentList, currentView, setCurrentView, addList, deleteList, items, loading, addItem, deleteItem } = useStoreWithAuth();
+  const { user } = useAuth();
+  const userId = user?.id;
+
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [isImporting, setIsImporting] = React.useState(false);
   const [importProgress, setImportProgress] = React.useState(0);
   const [showSettingsModal, setShowSettingsModal] = React.useState(false);
-  const [showAllList, setShowAllList] = React.useState(() => {
-    // Load from localStorage, default to true
-    const saved = localStorage.getItem('showAllList');
-    return saved === null ? true : saved === 'true';
-  });
+  const [showAllList, setShowAllList] = React.useState(true);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Load showAllList preference from localStorage when user is available
+  React.useEffect(() => {
+    if (userId) {
+      const saved = localStorage.getItem(`showAllList-${userId}`);
+      setShowAllList(saved === null ? true : saved === 'true');
+    }
+  }, [userId]);
 
   // Ensure a list is selected when lists are loaded
   React.useEffect(() => {
@@ -335,6 +343,19 @@ export const Sidebar: React.FC = () => {
       setCurrentList(lists[0].id);
     }
   }, [showAllList, currentListId, lists, setCurrentList]);
+
+  // Keyboard shortcut: Cmd+I / Ctrl+I to open Add Item modal
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'i') {
+        e.preventDefault();
+        setShowCreateModal(true);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -711,7 +732,9 @@ export const Sidebar: React.FC = () => {
                     onChange={(e) => {
                       const newValue = e.target.checked;
                       setShowAllList(newValue);
-                      localStorage.setItem('showAllList', newValue.toString());
+                      if (userId) {
+                        localStorage.setItem(`showAllList-${userId}`, newValue.toString());
+                      }
                     }}
                     className="ml-3 h-4 w-4 text-blue-600 rounded focus:ring-blue-500"
                   />

@@ -4,6 +4,7 @@ import { useStoreWithAuth } from '../store/useStoreWithAuth';
 import { TaskStatus, ReminderStatus } from '../types';
 import { Notes } from './Notes';
 import { useAuth } from '../contexts/AuthContext';
+import { SearchBar } from './SearchBar';
 
 interface TaskBoardProps {
   activeId: string | null;
@@ -11,14 +12,16 @@ interface TaskBoardProps {
 }
 
 export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => {
-  const { 
+  const {
     currentView,
-    setCurrentView, 
+    setCurrentView,
     getFilteredItems,
     emptyTrash,
     currentListId,
     lists,
     setSelectedItem,
+    setHighlightedItem,
+    setCurrentList,
     items: allItems,
     signOut
   } = useStoreWithAuth();
@@ -27,6 +30,39 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
     return localStorage.getItem('darkMode') === 'true';
   });
   const [showUserMenu, setShowUserMenu] = React.useState(false);
+
+  const handleSearchResultClick = (itemId: string) => {
+    // Find the item
+    const item = allItems.find(i => i.id === itemId);
+    if (!item) return;
+
+    // Navigate to the item's list
+    setCurrentList(item.listId);
+
+    // Navigate to the correct view based on item type
+    if (item.type === 'task') {
+      setCurrentView('tasks');
+    } else if (item.recurrence) {
+      setCurrentView('recurring');
+    } else {
+      setCurrentView('reminders');
+    }
+
+    // Select and highlight the item after view/list change completes
+    // Use setTimeout to ensure this happens after the view change useEffect
+    setTimeout(() => {
+      setSelectedItem(itemId);
+      setHighlightedItem(itemId);
+
+      // Scroll to the item after selection
+      setTimeout(() => {
+        const element = document.getElementById(`item-${itemId}`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
+    }, 50);
+  };
   
   const items = getFilteredItems();
 
@@ -191,9 +227,11 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
                 ).length})</span>
               </button>
               </div>
-              
-              {/* User info and dark mode toggle */}
+
+              {/* Search, User info and dark mode toggle */}
               <div className="flex items-center gap-3 pb-2">
+                <SearchBar onResultClick={handleSearchResultClick} />
+
                 <div className="relative user-menu-container">
                   <button
                     onClick={() => setShowUserMenu(!showUserMenu)}

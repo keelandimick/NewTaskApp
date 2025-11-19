@@ -1,4 +1,4 @@
-# NewTaskApp Development Guide & Todo List
+# FlowTask Development Guide & Todo List
 
 ## Overview
 A modern task management app with lists, reminders, and recurring tasks built with React, TypeScript, and Supabase.
@@ -31,7 +31,7 @@ A modern task management app with lists, reminders, and recurring tasks built wi
 - Drag and drop between columns
 - Notes system with "on hold" status
 - Import from images/PDFs
-- List sharing with other users
+- List sharing with other users (UI only - real-time sync pending)
 - Dark mode toggle
 - Mobile responsive design
 - Keyboard navigation (up/down arrows)
@@ -40,6 +40,89 @@ A modern task management app with lists, reminders, and recurring tasks built wi
 - Column drop zone highlighting
 - Optimistic UI updates with state protection
 - Cache-busting for Supabase queries
+- Global search with keyboard shortcut (⌘K/Ctrl+K)
+- Search result navigation to item's list/view
+- Persistent highlight until dismissed
+- User-specific preferences (Show All list setting)
+
+## Priority Tasks 🎯
+
+### 0. Quick Fixes
+- [ ] Fix dark mode toggle - currently doesn't apply dark styles properly
+- [x] Add keyboard shortcut (⌘I / Ctrl+I) to open "Add item" modal
+
+### 1. Push Notifications
+**Status**: Not implemented
+**Description**: Enable push notifications for reminders and shared list updates
+**Requirements**:
+- Desktop push notifications via Web Push API
+- Service Worker for background notifications
+- PWA support for iOS home screen (limited notification support)
+- Notification permissions UI
+
+**Limitations**:
+- iOS Safari has limited Web Push support (requires iOS 16.4+ and user must add to home screen)
+- No Siri integration without native app or Shortcuts integration
+- Notifications may be delayed when app is not open on mobile
+
+**Implementation Notes**:
+- Use Supabase Edge Functions or Firebase Cloud Messaging for push delivery
+- Store push subscription tokens in database
+- Send notifications for:
+  - Reminder due dates/times
+  - Shared list updates (when collaborator makes changes)
+  - Recurring task triggers
+
+### 2. Real-Time Collaboration (Shared Lists)
+**Status**: Broken - UI implemented but sync not working
+**Description**: Fix real-time synchronization for shared lists
+
+**Current State**:
+- ✅ UI for sharing lists (email-based)
+- ✅ Database RLS policies allow shared access
+- ✅ `getLists()` and `getItems()` fetch shared lists correctly
+- ❌ No real-time sync - changes only appear after polling (30s)
+- ❌ No notification when collaborator makes changes
+
+**Issues Found**:
+- No Supabase Realtime subscriptions implemented
+- App uses polling every 30 seconds (src/store/useStoreWithAuth.ts)
+- Users don't see collaborator changes until next poll
+- No conflict resolution for simultaneous edits
+
+**Required Changes**:
+1. Add Supabase Realtime subscriptions for:
+   - `items` table (INSERT, UPDATE, DELETE)
+   - `lists` table (UPDATE, DELETE)
+   - `notes` table (INSERT, UPDATE, DELETE)
+
+2. Filter subscriptions to only listen to accessible lists:
+   - User's own lists (user_id = current user)
+   - Shared lists (shared_with contains user email)
+
+3. Update store when realtime events fire:
+   - Merge incoming changes with local state
+   - Respect `recentlyUpdatedItems` to prevent overwriting local changes
+   - Show toast notification when collaborator makes changes
+
+4. Handle edge cases:
+   - List deleted by owner while collaborator viewing
+   - Item moved between lists
+   - Collaborator removed from shared list
+
+**Files to Update**:
+- `src/store/useStore.ts` - Add subscription management
+- `src/store/useStoreWithAuth.ts` - Set up realtime listeners
+- `src/lib/database.ts` - Add subscription helper functions
+
+**Testing Checklist**:
+- [ ] User A adds item to shared list → User B sees it immediately
+- [ ] User A edits item title → User B sees update
+- [ ] User A deletes item → User B sees deletion
+- [ ] User A moves item between columns → User B sees move
+- [ ] Owner deletes shared list → Collaborators redirected gracefully
+- [ ] Owner removes collaborator → Collaborator loses access immediately
+- [ ] Simultaneous edits don't cause data loss
 
 ## Future Feature Ideas
 - [ ] Multiple task selection with shift/cmd click
@@ -90,6 +173,9 @@ A modern task management app with lists, reminders, and recurring tasks built wi
 - Supabase eventual consistency can cause brief delays
 - No offline support
 - Limited to Supabase's rate limits
+- **Collaboration**: Shared lists don't sync in real-time (30-second polling delay)
+- **Push Notifications**: Not implemented yet
+- **iOS Siri Integration**: Not possible without native app or Shortcuts
 
 ## Development Notes
 - The app uses Supabase for backend services

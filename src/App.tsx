@@ -22,7 +22,7 @@ import { TaskStatus, ReminderStatus } from './types';
 
 function App() {
   const { user, loading } = useAuth();
-  const { updateItem, moveItem, getFilteredItems, currentView, currentListId, setSelectedItem, selectedItemId } = useStoreWithAuth();
+  const { updateItem, moveItem, getFilteredItems, currentView, currentListId, setSelectedItem, setHighlightedItem, selectedItemId } = useStoreWithAuth();
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const items = getFilteredItems();
   const notesOpen = !!selectedItemId;
@@ -30,7 +30,8 @@ function App() {
   // Deselect item when changing views or lists
   React.useEffect(() => {
     setSelectedItem(null);
-  }, [currentView, currentListId, setSelectedItem]);
+    setHighlightedItem(null);
+  }, [currentView, currentListId, setSelectedItem, setHighlightedItem]);
 
   // Handle escape key to close notes when input is not focused
   React.useEffect(() => {
@@ -39,20 +40,21 @@ function App() {
         // Check if any input or textarea is currently focused
         const activeElement = document.activeElement;
         const isInputFocused = activeElement && (
-          activeElement.tagName === 'INPUT' || 
+          activeElement.tagName === 'INPUT' ||
           activeElement.tagName === 'TEXTAREA' ||
           activeElement.getAttribute('contenteditable') === 'true'
         );
-        
+
         if (!isInputFocused) {
           setSelectedItem(null);
+          setHighlightedItem(null);
         }
       }
     };
 
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [selectedItemId, setSelectedItem]);
+  }, [selectedItemId, setSelectedItem, setHighlightedItem]);
 
   // Handle arrow key navigation
   React.useEffect(() => {
@@ -85,6 +87,7 @@ function App() {
         
         if (newIndex !== currentIndex && items[newIndex]) {
           setSelectedItem(items[newIndex].id);
+          setHighlightedItem(null);
         }
       }
     };

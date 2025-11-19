@@ -13,7 +13,8 @@ interface Store {
   loading: boolean;
   error: string | null;
   recentlyUpdatedItems: Set<string>;
-  
+  searchQuery: string;
+
   loadData: (userId: string) => Promise<void>;
   addItem: (item: Omit<Item, 'id' | 'createdAt' | 'updatedAt' | 'notes'>, userId: string) => Promise<string>;
   updateItem: (id: string, updates: Partial<Item>, userId: string) => Promise<void>;
@@ -23,21 +24,23 @@ interface Store {
   emptyTrash: (userId: string) => Promise<void>;
   moveItem: (itemId: string, newStatus: TaskStatus | ReminderStatus, userId: string) => Promise<void>;
   reorderItems: (activeId: string, overId: string) => void;
-  
+
   addNote: (itemId: string, content: string, userId: string) => Promise<void>;
   deleteNote: (itemId: string, noteId: string, userId: string) => Promise<void>;
   updateNote: (itemId: string, noteId: string, content: string, userId: string) => Promise<void>;
-  
+
   addList: (list: Omit<List, 'id' | 'createdAt' | 'updatedAt'>, userId: string) => Promise<void>;
   updateList: (id: string, updates: Partial<List>, userId: string) => Promise<void>;
   deleteList: (id: string, userId: string) => Promise<void>;
-  
+
   setCurrentList: (listId: string) => void;
   setCurrentView: (view: ViewMode) => void;
   setSelectedItem: (itemId: string | null) => void;
   setHighlightedItem: (itemId: string | null) => void;
-  
+  setSearchQuery: (query: string) => void;
+
   getFilteredItems: () => Item[];
+  searchItems: (query: string) => Item[];
 }
 
 
@@ -52,6 +55,7 @@ export const useStore = create<Store>((set, get) => ({
   loading: false,
   error: null,
   recentlyUpdatedItems: new Set<string>(),
+  searchQuery: '',
   
   loadData: async (userId: string) => {
     set({ loading: true, error: null });
@@ -479,12 +483,10 @@ export const useStore = create<Store>((set, get) => ({
   
   setHighlightedItem: (itemId) => {
     set({ highlightedItemId: itemId });
-    if (itemId) {
-      // Clear highlight after 2 seconds
-      setTimeout(() => {
-        set({ highlightedItemId: null });
-      }, 2000);
-    }
+  },
+
+  setSearchQuery: (query) => {
+    set({ searchQuery: query });
   },
   
   getFilteredItems: () => {
@@ -589,5 +591,68 @@ export const useStore = create<Store>((set, get) => ({
     }
     
     return filteredItems;
+  },
+
+  searchItems: (query) => {
+    const { items } = get();
+
+    // If query is empty, return empty array
+    if (!query.trim()) {
+      return [];
+    }
+
+    const searchTerms = query.toLowerCase().trim().split(/\s+/);
+
+    // Search across all non-deleted items
+    const results = items
+      .filter(item => !item.deletedAt)
+      .map(item => {
+        let score = 0;
+        const titleLower = item.title.toLowerCase();
+
+        // Check title matches
+        const titleMatches = searchTerms.every(term => titleLower.includes(term));
+        if (titleMatches) {
+          // Exact phrase match gets highest score
+          if (titleLower.includes(query.toLowerCase())) {
+            score += 100;
+          } else {
+            score += 50;
+          }
+        }
+
+        // Check notes matches
+        const notesText = item.notes.map(n => n.content.toLowerCase()).join(' ');
+        const notesMatches = searchTerms.every(term => notesText.includes(term));
+        if (notesMatches) {
+          score += 30;
+        }
+
+        // Check date/time matches for reminders
+        if (item.type === 'reminder' && item.reminderDate) {
+          const dateStr = new Date(item.reminderDate).toLocaleDateString().toLowerCase();
+          const dateMatches = searchTerms.some(term => dateStr.includes(term));
+          if (dateMatches) {
+            score += 20;
+          }
+        }
+
+        // Check recurrence time matches
+        if (item.recurrence?.time) {
+          const timeMatches = searchTerms.some(term =>
+            item.recurrence!.time.toLowerCase().includes(term)
+          );
+          if (timeMatches) {
+            score += 20;
+          }
+        }
+
+        return { item, score };
+      })
+      .filter(result => result.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(result => result.item);
+
+    return results;
   },
 }));

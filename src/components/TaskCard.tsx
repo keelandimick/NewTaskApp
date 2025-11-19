@@ -155,9 +155,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
             if (selectedItemId === item.id) {
               // Click on already selected item - deselect it
               setSelectedItem(null);
+              setHighlightedItem(null);
             } else {
               // Click on different item - select it
               setSelectedItem(item.id);
+              setHighlightedItem(null);
             }
           }
         }}
