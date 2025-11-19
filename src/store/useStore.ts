@@ -603,9 +603,9 @@ export const useStore = create<Store>((set, get) => ({
 
     const searchTerms = query.toLowerCase().trim().split(/\s+/);
 
-    // Search across all non-deleted items
+    // Search across all non-deleted and non-completed items
     const results = items
-      .filter(item => !item.deletedAt)
+      .filter(item => !item.deletedAt && item.status !== 'complete')
       .map(item => {
         let score = 0;
         const titleLower = item.title.toLowerCase();
