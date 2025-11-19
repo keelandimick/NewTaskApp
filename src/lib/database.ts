@@ -149,6 +149,7 @@ export const db = {
     if ('priority' in updates) updateData.priority = updates.priority;
     if ('status' in updates) updateData.status = updates.status;
     if ('listId' in updates) updateData.list_id = updates.listId;
+    if ('category' in updates) updateData.category = updates.category;
     if ('reminderDate' in updates) updateData.reminder_date = updates.reminderDate?.toISOString();
     if ('dueDate' in updates) updateData.due_date = updates.dueDate?.toISOString();
     if ('recurrence' in updates) updateData.recurrence_settings = updates.recurrence;
@@ -307,6 +308,7 @@ export function dbItemToItem(dbItem: DbItem & { notes?: DbNote[] }): Item {
     createdAt: new Date(dbItem.created_at),
     updatedAt: new Date(dbItem.updated_at),
     listId: dbItem.list_id,
+    category: (dbItem as any).category || undefined,
     recurrence: dbItem.recurrence_settings as RecurrenceSettings | undefined,
     metadata: dbItem.metadata || undefined,
     deletedAt: dbItem.deleted_at ? new Date(dbItem.deleted_at) : undefined,

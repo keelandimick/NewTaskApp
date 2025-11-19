@@ -1,10 +1,12 @@
 import React from 'react';
 import { TaskColumn } from './TaskColumn';
+import { TaskCard } from './TaskCard';
 import { useStoreWithAuth } from '../store/useStoreWithAuth';
 import { TaskStatus, ReminderStatus } from '../types';
 import { Notes } from './Notes';
 import { useAuth } from '../contexts/AuthContext';
 import { SearchBar } from './SearchBar';
+import { categorizeItems } from '../lib/ai';
 
 interface TaskBoardProps {
   activeId: string | null;
@@ -25,6 +27,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
     setHighlightedItem,
     setCurrentList,
     items: allItems,
+    updateItem,
     signOut
   } = useStoreWithAuth();
   const { user } = useAuth();
@@ -32,6 +35,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
     return localStorage.getItem('darkMode') === 'true';
   });
   const [showUserMenu, setShowUserMenu] = React.useState(false);
+  const [isCategorizing, setIsCategorizing] = React.useState(false);
+  const [categorizeProgress, setCategorizeProgress] = React.useState(0);
 
   const handleSearchResultClick = (itemId: string) => {
     // Find the item
@@ -94,23 +99,23 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
     { id: 'complete', title: 'Completed Items' },
   ];
 
-  // Get category columns from items
+  // Get category columns from items (only for tasks)
   const getCategoryColumns = () => {
     const categories = new Set<string>();
     items.forEach(item => {
-      if (item.category) {
+      if (item.type === 'task' && item.category) {
         categories.add(item.category);
       }
     });
 
-    // If no categories, show an "Uncategorized" column
-    if (categories.size === 0) {
-      return [{ id: 'uncategorized', title: 'Uncategorized' }];
-    }
-
-    return Array.from(categories)
+    const categoryList = Array.from(categories)
       .sort()
       .map(cat => ({ id: cat, title: cat }));
+
+    // Always add "Uncategorized" at the bottom
+    categoryList.push({ id: 'uncategorized', title: 'Uncategorized' });
+
+    return categoryList;
   };
 
   const columns = displayMode === 'category'
@@ -159,6 +164,13 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
     }
     localStorage.setItem('darkMode', darkMode.toString());
   }, [darkMode]);
+
+  // Reset to column view when switching away from Tasks tab
+  React.useEffect(() => {
+    if (currentView !== 'tasks' && displayMode === 'category') {
+      setDisplayMode('column');
+    }
+  }, [currentView, displayMode, setDisplayMode]);
 
   // Close user menu when clicking outside
   React.useEffect(() => {
@@ -251,31 +263,114 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
               </button>
               </div>
 
-              {/* Column/Category toggle */}
-              {currentView !== 'complete' && (
-                <div className="flex items-center gap-1 pb-2 bg-gray-100 rounded-lg p-1">
-                  <button
-                    onClick={() => setDisplayMode('column')}
-                    className={`px-3 py-1 text-xs rounded transition-all ${
-                      displayMode === 'column'
-                        ? 'bg-white text-gray-900 shadow-sm font-medium'
-                        : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                    title="Column view - organize by status"
-                  >
-                    Columns
-                  </button>
-                  <button
-                    onClick={() => setDisplayMode('category')}
-                    className={`px-3 py-1 text-xs rounded transition-all ${
-                      displayMode === 'category'
-                        ? 'bg-white text-gray-900 shadow-sm font-medium'
-                        : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                    title="Category view - organize by AI categories"
-                  >
-                    Categories
-                  </button>
+              {/* Column/Category toggle - only for Tasks tab */}
+              {currentView === 'tasks' && (
+                <div className="flex items-center gap-2 pb-2">
+                  <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                    <button
+                      onClick={() => setDisplayMode('column')}
+                      className={`px-3 py-1 text-xs rounded transition-all ${
+                        displayMode === 'column'
+                          ? 'bg-white text-gray-900 shadow-sm font-medium'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                      title="Column view - organize by status"
+                    >
+                      Columns
+                    </button>
+                    <button
+                      onClick={() => setDisplayMode('category')}
+                      className={`px-3 py-1 text-xs rounded transition-all ${
+                        displayMode === 'category'
+                          ? 'bg-white text-gray-900 shadow-sm font-medium'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                      title="Category view - organize by AI categories"
+                    >
+                      Categories
+                    </button>
+                  </div>
+                  {/* Re-categorize refresh button */}
+                  {displayMode === 'category' && (
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm('Re-categorize all items? This will use AI to reorganize items in all your lists.')) return;
+
+                        setIsCategorizing(true);
+                        setCategorizeProgress(0);
+
+                        // Show at least 5% after 3 seconds if still at 0
+                        const progressTimer = setTimeout(() => {
+                          setCategorizeProgress(prev => prev === 0 ? 5 : prev);
+                        }, 3000);
+
+                        try {
+                          const totalLists = lists.length;
+                          for (let i = 0; i < lists.length; i++) {
+                            const list = lists[i];
+                            const listItems = allItems.filter(item =>
+                              item.listId === list.id &&
+                              !item.deletedAt &&
+                              item.status !== 'complete' &&
+                              item.type === 'task' // Only categorize tasks
+                            );
+
+                            if (listItems.length > 0) {
+                              // Update progress for this list
+                              const baseProgress = (i / totalLists) * 100;
+                              setCategorizeProgress(Math.round(Math.max(baseProgress, 5)));
+
+                              const categorizations = await categorizeItems(
+                                listItems.map(item => ({ id: item.id, title: item.title })),
+                                list.name
+                              );
+
+                              // Progress after AI completes
+                              setCategorizeProgress(Math.round(baseProgress + (100 / totalLists) * 0.5));
+
+                              await Promise.all(
+                                categorizations.map(cat =>
+                                  updateItem(cat.id, { category: cat.category })
+                                )
+                              );
+
+                              // Progress after updates complete
+                              setCategorizeProgress(Math.round(((i + 1) / totalLists) * 100));
+                            } else {
+                              // Skip empty lists but update progress
+                              setCategorizeProgress(Math.round(((i + 1) / totalLists) * 100));
+                            }
+                          }
+
+                          await new Promise(resolve => setTimeout(resolve, 500));
+                        } catch (error) {
+                          console.error('Re-categorization failed:', error);
+                          alert('Failed to re-categorize. Please try again.');
+                        } finally {
+                          clearTimeout(progressTimer);
+                          setIsCategorizing(false);
+                          setCategorizeProgress(0);
+                        }
+                      }}
+                      disabled={isCategorizing}
+                      className={`p-1.5 rounded-lg transition-colors ${
+                        isCategorizing
+                          ? 'text-gray-400 cursor-not-allowed'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                      title="Re-categorize all items"
+                    >
+                      {isCategorizing ? (
+                        <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -359,33 +454,91 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
         </div>
         
         <div className="flex gap-4 p-6 pt-3 flex-1 overflow-auto">
-          {columns.map((column, index) => (
-            <React.Fragment key={column.id}>
-              <TaskColumn
-                title={column.title}
-                columnId={column.id}
-                items={
-                  displayMode === 'category'
-                    ? column.id === 'uncategorized'
-                      ? items.filter(item => !item.category)
-                      : items.filter(item => item.category === column.id)
-                    : currentView === 'trash'
-                      ? items
-                      : items.filter(item => item.status === column.id)
-                }
-              />
-              {(index < columns.length - 1 || notesOpen) && (
-                <div className="w-px bg-gray-200" />
+          {displayMode === 'category' && currentView === 'tasks' ? (
+            <>
+              {/* Single column category view with sub-headers */}
+              <div className="flex-1 flex flex-col gap-6 overflow-auto">
+                {getCategoryColumns().map(category => {
+                  const categoryItems = category.id === 'uncategorized'
+                    ? items.filter(item => item.type === 'task' && !item.category && item.status !== 'complete')
+                    : items.filter(item => item.type === 'task' && item.category === category.id && item.status !== 'complete');
+
+                  if (categoryItems.length === 0) return null;
+
+                  return (
+                    <div key={category.id}>
+                      {/* Category sub-header */}
+                      <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3 px-2">
+                        {category.title}
+                      </h3>
+                      {/* Items in this category */}
+                      <div>
+                        {categoryItems.map(item => (
+                          <TaskCard key={item.id} item={item} />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {notesOpen && (
+                <>
+                  <div className="w-px bg-gray-200" />
+                  <Notes isOpen={true} />
+                </>
               )}
-            </React.Fragment>
-          ))}
-          {notesOpen && (
-            <Notes
-              isOpen={true}
-            />
+            </>
+          ) : (
+            <>
+              {/* Standard column view */}
+              {columns.map((column, index) => (
+                <React.Fragment key={column.id}>
+                  <TaskColumn
+                    title={column.title}
+                    columnId={column.id}
+                    items={
+                      currentView === 'trash'
+                        ? items
+                        : items.filter(item => item.status === column.id)
+                    }
+                  />
+                  {(index < columns.length - 1 || notesOpen) && (
+                    <div className="w-px bg-gray-200" />
+                  )}
+                </React.Fragment>
+              ))}
+              {notesOpen && (
+                <Notes isOpen={true} />
+              )}
+            </>
           )}
         </div>
       </div>
+
+      {/* Re-categorization Progress Modal */}
+      {isCategorizing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4 text-center">Re-categorizing Items</h3>
+
+            <div className="mb-4">
+              <div className="bg-gray-200 rounded-full h-3 overflow-hidden">
+                <div
+                  className="bg-blue-600 h-3 rounded-full transition-all duration-300"
+                  style={{ width: `${categorizeProgress}%` }}
+                />
+              </div>
+              <p className="text-center text-2xl font-bold text-blue-600 mt-4">
+                {categorizeProgress}%
+              </p>
+            </div>
+
+            <div className="text-center text-sm text-gray-600">
+              Please wait while AI categorizes your items...
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

@@ -3,7 +3,7 @@ import { useStoreWithAuth } from '../store/useStoreWithAuth';
 import { Priority, RecurrenceFrequency, ViewMode, Item } from '../types';
 import { format } from 'date-fns';
 import customChrono from '../lib/chronoConfig';
-import { processTextWithAI, categorizeItems } from '../lib/ai';
+import { processTextWithAI } from '../lib/ai';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -230,34 +230,6 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
           recurrence,
         } as any);
 
-        // Categorize all items in the target list
-        try {
-          const listItems = items.filter(item =>
-            item.listId === targetListId &&
-            !item.deletedAt &&
-            item.status !== 'complete'
-          );
-
-          // Include the newly added item
-          const allListItems = [...listItems, { id: newItemId, title: extractedTitle }];
-
-          const targetList = lists.find(l => l.id === targetListId);
-          const listName = targetList?.name || 'Tasks';
-
-          const categorizations = await categorizeItems(
-            allListItems.map(item => ({ id: item.id, title: item.title })),
-            listName
-          );
-
-          // Update all items with their categories
-          for (const cat of categorizations) {
-            await updateItem(cat.id, { category: cat.category });
-          }
-        } catch (error) {
-          console.error('Failed to categorize items:', error);
-          // Don't block item creation if categorization fails
-        }
-
         // Navigation logic - simplified and complete
         // 1. Determine target view based on item type
         let targetView: ViewMode;
@@ -278,9 +250,11 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
         if (targetView !== currentView) {
           setCurrentView(targetView);
         }
-        
-        // 4. Highlight the new item
-        setHighlightedItem(newItemId);
+
+        // 4. Highlight the new item after view/list change completes
+        setTimeout(() => {
+          setHighlightedItem(newItemId);
+        }, 100);
       } catch (error) {
         console.error('Failed to add item:', error);
         setIsProcessing(false);
@@ -312,9 +286,11 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
         if (targetView !== currentView && currentView !== 'trash') {
           setCurrentView(targetView);
         }
-        
-        // 3. Highlight the edited item
-        setHighlightedItem(editItem.id);
+
+        // 3. Highlight the edited item after view change completes
+        setTimeout(() => {
+          setHighlightedItem(editItem.id);
+        }, 100);
       } catch (error) {
         console.error('Failed to update item:', error);
         setIsProcessing(false);

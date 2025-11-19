@@ -3,7 +3,6 @@ import { useDroppable } from '@dnd-kit/core';
 import { useStoreWithAuth } from '../store/useStoreWithAuth';
 import { TaskModal } from './TaskModal';
 import { useAuth } from '../contexts/AuthContext';
-import { categorizeItems } from '../lib/ai';
 
 interface DroppableListItemProps {
   list: any;
@@ -320,7 +319,6 @@ export const Sidebar: React.FC = () => {
   const [importProgress, setImportProgress] = React.useState(0);
   const [showSettingsModal, setShowSettingsModal] = React.useState(false);
   const [showAllList, setShowAllList] = React.useState(true);
-  const [isCategorizing, setIsCategorizing] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Load showAllList preference from localStorage when user is available
@@ -757,60 +755,6 @@ export const Sidebar: React.FC = () => {
                   />
                 </label>
               </div>
-
-              {/* Re-categorize all button */}
-              <button
-                onClick={async () => {
-                  if (window.confirm('Re-categorize all items? This will use AI to reorganize items in all your lists based on their content.')) {
-                    setIsCategorizing(true);
-                    try {
-                      // Categorize each list separately
-                      for (const list of lists) {
-                        const listItems = items.filter(item =>
-                          item.listId === list.id &&
-                          !item.deletedAt &&
-                          item.status !== 'complete'
-                        );
-
-                        if (listItems.length > 0) {
-                          const categorizations = await categorizeItems(
-                            listItems.map(item => ({ id: item.id, title: item.title })),
-                            list.name
-                          );
-
-                          // Update all items with their categories
-                          const { updateItem } = await import('../store/useStoreWithAuth');
-                          for (const cat of categorizations) {
-                            // Use direct database update to avoid triggering re-categorization
-                            const { db } = await import('../lib/database');
-                            if (userId) {
-                              await db.updateItem(cat.id, { category: cat.category }, userId);
-                            }
-                          }
-                        }
-                      }
-
-                      alert('All items have been re-categorized successfully!');
-                      // Reload data to show new categories
-                      window.location.reload();
-                    } catch (error) {
-                      console.error('Failed to re-categorize:', error);
-                      alert('Failed to re-categorize items. Please try again.');
-                    } finally {
-                      setIsCategorizing(false);
-                    }
-                  }
-                }}
-                disabled={isCategorizing}
-                className={`w-full px-4 py-2 text-left rounded-lg transition-colors flex items-center ${
-                  isCategorizing
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                <span className="mr-2">🏷️</span>
-                {isCategorizing ? 'Re-categorizing...' : 'Re-categorize All Items'}
-              </button>
 
               {/* Clear Data button */}
               <button

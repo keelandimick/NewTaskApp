@@ -19,11 +19,10 @@ import { Auth } from './components/Auth';
 import { useStoreWithAuth } from './store/useStoreWithAuth';
 import { useAuth } from './contexts/AuthContext';
 import { TaskStatus, ReminderStatus } from './types';
-import { categorizeItems } from './lib/ai';
 
 function App() {
   const { user, loading } = useAuth();
-  const { updateItem, moveItem, getFilteredItems, currentView, currentListId, setSelectedItem, setHighlightedItem, selectedItemId, items: allItems, lists } = useStoreWithAuth();
+  const { updateItem, moveItem, getFilteredItems, currentView, currentListId, setSelectedItem, setHighlightedItem, selectedItemId } = useStoreWithAuth();
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const items = getFilteredItems();
   const notesOpen = !!selectedItemId;
@@ -146,65 +145,8 @@ function App() {
     // Check if dropping on a list in sidebar
     if (overId.startsWith('list-')) {
       const newListId = overId.replace('list-', '');
-      const draggedItem = allItems.find(item => item.id === itemId);
-      const oldListId = draggedItem?.listId;
 
       updateItem(itemId, { listId: newListId });
-
-      // Categorize both old and new lists if they're different
-      if (oldListId && oldListId !== newListId) {
-        (async () => {
-          try {
-            // Categorize old list
-            const oldListItems = allItems.filter(item =>
-              item.listId === oldListId &&
-              !item.deletedAt &&
-              item.status !== 'complete' &&
-              item.id !== itemId // Exclude the moved item
-            );
-
-            if (oldListItems.length > 0) {
-              const oldList = lists.find(l => l.id === oldListId);
-              const oldListName = oldList?.name || 'Tasks';
-
-              const oldCategorizations = await categorizeItems(
-                oldListItems.map(item => ({ id: item.id, title: item.title })),
-                oldListName
-              );
-
-              for (const cat of oldCategorizations) {
-                await updateItem(cat.id, { category: cat.category });
-              }
-            }
-
-            // Categorize new list
-            const newListItems = allItems.filter(item =>
-              item.listId === newListId &&
-              !item.deletedAt &&
-              item.status !== 'complete'
-            );
-
-            if (draggedItem) {
-              // Include the moved item
-              const allNewListItems = [...newListItems, draggedItem];
-
-              const newList = lists.find(l => l.id === newListId);
-              const newListName = newList?.name || 'Tasks';
-
-              const newCategorizations = await categorizeItems(
-                allNewListItems.map(item => ({ id: item.id, title: item.title })),
-                newListName
-              );
-
-              for (const cat of newCategorizations) {
-                await updateItem(cat.id, { category: cat.category });
-              }
-            }
-          } catch (error) {
-            console.error('Failed to categorize items after list move:', error);
-          }
-        })();
-      }
     } else {
       // Handle dropping on columns or cards
       const taskColumns = ['start', 'in-progress', 'complete'];
