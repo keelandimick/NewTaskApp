@@ -14,18 +14,15 @@ interface TaskModalProps {
 }
 
 export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, editItem, defaultColumn }) => {
-  const { 
-    addItem, 
-    updateItem, 
-    deleteItem,
-    addNote,
+  const {
+    addItem,
     items,
-    currentListId, 
-    currentView, 
-    setCurrentView, 
+    currentListId,
+    currentView,
+    setCurrentView,
     setHighlightedItem,
     lists,
-    setCurrentList 
+    setCurrentList
   } = useStoreWithAuth();
 
   const [title, setTitle] = useState('');
@@ -34,40 +31,19 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
   const [dueTime, setDueTime] = useState('');
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency>('daily');
-  const [noteInput, setNoteInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [naturalDateInput, setNaturalDateInput] = useState('');
 
-  // Initialize form with edit item data
+  // Reset form when modal closes
   useEffect(() => {
     if (!isOpen) {
-      // Reset form when modal closes
       setTitle('');
       setPriority('low');
       setDueDate('');
       setDueTime('');
       setIsRecurring(false);
       setRecurrenceFrequency('daily');
-      setNoteInput('');
-      setNaturalDateInput('');
-    } else if (mode === 'edit' && editItem) {
-      setTitle(editItem.title);
-      setPriority(editItem.priority);
-      
-      if (editItem.type === 'reminder' && editItem.reminderDate) {
-        const date = new Date(editItem.reminderDate);
-        setDueDate(format(date, 'yyyy-MM-dd'));
-        setDueTime(format(date, 'HH:mm'));
-        // Don't set naturalDateInput for edit mode
-      }
-      
-      if (editItem.recurrence) {
-        setIsRecurring(true);
-        setRecurrenceFrequency(editItem.recurrence.frequency);
-        setDueTime(editItem.recurrence.time);
-      }
     }
-  }, [isOpen, mode, editItem]);
+  }, [isOpen]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -87,7 +63,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, title, priority, dueDate, dueTime, isRecurring, recurrenceFrequency, mode, editItem, defaultColumn, currentListId, currentView]);
+  }, [isOpen, onClose, title, priority, dueDate, dueTime, isRecurring, recurrenceFrequency, defaultColumn, currentListId, currentView]);
 
   if (!isOpen) return null;
 
@@ -172,12 +148,14 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
       }
     }
 
-    // Now process the cleaned title with AI for spell correction and proper noun capitalization
+    // Now process the cleaned title with AI for spell correction, list matching, and priority detection
     let aiSuggestedListId: string | undefined;
+    let aiSuggestedPriority: Priority = 'low';
     try {
       const processed = await processTextWithAI(extractedTitle, lists.map(l => ({ id: l.id, name: l.name })));
       extractedTitle = processed.correctedText;
       aiSuggestedListId = processed.suggestedListId;
+      aiSuggestedPriority = processed.suggestedPriority || 'low';
     } catch (error) {
       console.error('AI processing failed, using original text:', error);
       // Fallback: just capitalize first letter
@@ -205,137 +183,64 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
       originalText: detectedRecurrence.originalText
     } : undefined;
 
-    if (mode === 'create') {
-      try {
-        // Use AI-suggested list if available, otherwise use current selection
-        let targetListId: string;
-        if (aiSuggestedListId) {
-          // Always prefer AI suggestion when available
-          targetListId = aiSuggestedListId;
-        } else if (currentListId === 'all') {
-          // If on "All" view with no AI suggestion, use first list
-          targetListId = lists[0]?.id;
-        } else {
-          // Otherwise use the currently selected list
-          targetListId = currentListId;
-        }
-
-        const newItemId = await addItem({
-          type: itemType,
-          title: extractedTitle,
-          priority,
-          status: itemType === 'task' ? (defaultColumn as any || 'start') : 'within7',
-          listId: targetListId,
-          reminderDate,
-          recurrence,
-        } as any);
-
-        // Navigation logic - simplified and complete
-        // 1. Determine target view based on item type
-        let targetView: ViewMode;
-        if (recurrence) {
-          targetView = 'recurring';
-        } else if (reminderDate) {
-          targetView = 'reminders';
-        } else {
-          targetView = 'tasks';
-        }
-
-        // 2. Switch to the target list if it's different from current
-        if (currentListId !== targetListId) {
-          setCurrentList(targetListId);
-        }
-
-        // 3. Navigate to the appropriate view
-        if (targetView !== currentView) {
-          setCurrentView(targetView);
-        }
-
-        // 4. Highlight the new item after view/list change completes
-        setTimeout(() => {
-          setHighlightedItem(newItemId);
-        }, 100);
-      } catch (error) {
-        console.error('Failed to add item:', error);
-        setIsProcessing(false);
-        return;
+    try {
+      // Use AI-suggested list if available, otherwise use current selection
+      let targetListId: string;
+      if (aiSuggestedListId) {
+        // Always prefer AI suggestion when available
+        targetListId = aiSuggestedListId;
+      } else if (currentListId === 'all') {
+        // If on "All" view with no AI suggestion, use first list
+        targetListId = lists[0]?.id;
+      } else {
+        // Otherwise use the currently selected list
+        targetListId = currentListId;
       }
-    } else if (mode === 'edit' && editItem) {
-      try {
-        // Update existing item
-        await updateItem(editItem.id, {
-          title: extractedTitle,
-          priority,
-          reminderDate,
-          recurrence,
-          type: itemType,
-        });
 
-        // Navigation logic for edits - simplified
-        // 1. Determine target view based on updated item type
-        let targetView: ViewMode;
-        if (recurrence) {
-          targetView = 'recurring';
-        } else if (reminderDate) {
-          targetView = 'reminders';
-        } else {
-          targetView = 'tasks';
-        }
+      const newItemId = await addItem({
+        type: itemType,
+        title: extractedTitle,
+        priority: aiSuggestedPriority, // Use AI-suggested priority instead of manual selection
+        status: itemType === 'task' ? (defaultColumn as any || 'start') : 'within7',
+        listId: targetListId,
+        reminderDate,
+        recurrence,
+      } as any);
 
-        // 2. Navigate to the appropriate view if item type changed
-        if (targetView !== currentView && currentView !== 'trash') {
-          setCurrentView(targetView);
-        }
-
-        // 3. Highlight the edited item after view change completes
-        setTimeout(() => {
-          setHighlightedItem(editItem.id);
-        }, 100);
-      } catch (error) {
-        console.error('Failed to update item:', error);
-        setIsProcessing(false);
-        return;
+      // Navigation logic - simplified and complete
+      // 1. Determine target view based on item type
+      let targetView: ViewMode;
+      if (recurrence) {
+        targetView = 'recurring';
+      } else if (reminderDate) {
+        targetView = 'reminders';
+      } else {
+        targetView = 'tasks';
       }
+
+      // 2. Switch to the target list if it's different from current
+      if (currentListId !== targetListId) {
+        setCurrentList(targetListId);
+      }
+
+      // 3. Navigate to the appropriate view
+      if (targetView !== currentView) {
+        setCurrentView(targetView);
+      }
+
+      // 4. Highlight the new item after view/list change completes
+      setTimeout(() => {
+        setHighlightedItem(newItemId);
+      }, 100);
+    } catch (error) {
+      console.error('Failed to add item:', error);
+      setIsProcessing(false);
+      return;
     }
 
     setIsProcessing(false);
     onClose();
   };
-
-  const handleAddNote = async () => {
-    if (!noteInput.trim() || !editItem) return;
-    try {
-      await addNote(editItem.id, noteInput.trim());
-      setNoteInput('');
-    } catch (error) {
-      console.error('Failed to add note:', error);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!editItem) return;
-    if (window.confirm(`Delete "${editItem.title}"?`)) {
-      try {
-        await deleteItem(editItem.id);
-        onClose();
-      } catch (error) {
-        console.error('Failed to delete item:', error);
-      }
-    }
-  };
-
-  const priorities: { value: Priority; label: string }[] = [
-    { value: 'now', label: 'Now' },
-    { value: 'high', label: 'High' },
-    { value: 'low', label: 'Low' },
-  ];
-
-  const frequencies: { value: RecurrenceFrequency; label: string }[] = [
-    { value: 'daily', label: 'Daily' },
-    { value: 'weekly', label: 'Weekly' },
-    { value: 'monthly', label: 'Monthly' },
-    { value: 'yearly', label: 'Yearly' },
-  ];
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-50" onClick={onClose}>
@@ -345,7 +250,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
           onClick={e => e.stopPropagation()}
         >
           <h2 className="text-lg font-semibold mb-4">
-            {mode === 'create' ? 'New Item' : 'Edit Item'}
+            New Item
           </h2>
 
           {/* Title */}
@@ -383,177 +288,15 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
             })()}
           </div>
 
-          {/* Priority */}
-          <div className="mb-4">
-            <label className="text-sm font-medium text-gray-700 mb-2 block">Priority</label>
-            <div className="flex gap-2">
-              {priorities.map(p => (
-                <button
-                  key={p.value}
-                  onClick={() => setPriority(p.value)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                    priority === p.value 
-                      ? 'bg-blue-500 text-white' 
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
+          {/* AI Info Blurb */}
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-xs text-blue-800">
+              <span className="font-semibold">AI-Powered Smart Sorting:</span> Your task will be automatically matched to the best list and assigned the appropriate priority based on the title.
+            </p>
           </div>
 
-          {/* Due Date/Time - Only show in edit mode */}
-          {mode === 'edit' && (
-            <div className="mb-4">
-              <label className="text-sm font-medium text-gray-700 mb-2 block">Due Date & Time</label>
-              <div className="space-y-2">
-                {/* Natural language input */}
-                <input
-                  type="text"
-                  value={naturalDateInput}
-                  onChange={(e) => {
-                    setNaturalDateInput(e.target.value);
-                    // Parse the input
-                    const parsed = customChrono.parseDate(e.target.value);
-                    if (parsed) {
-                      setDueDate(format(parsed, 'yyyy-MM-dd'));
-                      setDueTime(format(parsed, 'HH:mm'));
-                    }
-                  }}
-                  placeholder="e.g. tomorrow at 3pm, next Monday, in 2 hours"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                {naturalDateInput && customChrono.parseDate(naturalDateInput) && (
-                  <div className="text-xs text-gray-500">
-                    Understood as: {format(customChrono.parseDate(naturalDateInput)!, 'MMM d, yyyy h:mm a')}
-                  </div>
-                )}
-                {/* Manual date/time inputs with clear button */}
-                <div className="flex gap-2">
-                  <input
-                    type="date"
-                    value={dueDate}
-                    onChange={(e) => {
-                      setDueDate(e.target.value);
-                      setNaturalDateInput(''); // Clear natural language when manual input is used
-                    }}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <input
-                    type="time"
-                    value={dueTime}
-                    onChange={(e) => {
-                      setDueTime(e.target.value);
-                      setNaturalDateInput(''); // Clear natural language when manual input is used
-                    }}
-                    placeholder="09:00"
-                    className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDueDate('');
-                      setDueTime('');
-                      setNaturalDateInput('');
-                    }}
-                    className="px-3 py-2 text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Recurrence - Only show in edit mode */}
-          {mode === 'edit' && (
-            <div className="mb-6">
-              <div className="flex items-center mb-3">
-                <input
-                  type="checkbox"
-                  id="recurring-modal"
-                  checked={isRecurring}
-                  onChange={(e) => setIsRecurring(e.target.checked)}
-                  className="mr-2"
-                />
-                <label htmlFor="recurring-modal" className="text-sm font-medium text-gray-700">
-                  Make recurring
-                </label>
-              </div>
-              {isRecurring && (
-                <div className="flex gap-2">
-                  {frequencies.map(f => (
-                    <button
-                      key={f.value}
-                      onClick={() => setRecurrenceFrequency(f.value)}
-                      className={`px-3 py-1.5 rounded-lg text-sm transition-all ${
-                        recurrenceFrequency === f.value 
-                          ? 'bg-blue-500 text-white' 
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Notes section for edit mode */}
-          {mode === 'edit' && editItem && (
-            <div className="mb-6">
-              <label className="text-sm font-medium text-gray-700 mb-2 block">Notes</label>
-              <div className="max-h-32 overflow-y-auto mb-2 space-y-2">
-                {editItem.notes.map(note => (
-                  <div key={note.id} className="bg-gray-50 rounded p-2">
-                    <p className="text-sm text-gray-800">{note.content}</p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {format(new Date(note.timestamp), 'MMM d, h:mm a')}
-                    </p>
-                  </div>
-                ))}
-                {editItem.notes.length === 0 && (
-                  <p className="text-sm text-gray-500">No notes yet</p>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={noteInput}
-                  onChange={(e) => setNoteInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddNote();
-                    }
-                  }}
-                  placeholder="Add a note..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  spellCheck="true"
-                />
-                <button
-                  onClick={handleAddNote}
-                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-                >
-                  Add
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Actions */}
-          <div className="flex justify-between items-center">
-            {mode === 'edit' && (
-              <button
-                onClick={handleDelete}
-                className="text-sm text-red-600 hover:text-red-800"
-              >
-                Delete
-              </button>
-            )}
-            <div className="flex gap-2 ml-auto">
+          <div className="flex justify-end items-center gap-2">
               <button
                 onClick={onClose}
                 disabled={isProcessing}
@@ -580,9 +323,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
                 )}
-                {isProcessing ? 'Processing...' : (mode === 'create' ? 'Create' : 'Save')}
+                {isProcessing ? 'Processing...' : 'Create'}
               </button>
-            </div>
           </div>
         </div>
       </div>

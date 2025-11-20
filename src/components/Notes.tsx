@@ -312,7 +312,9 @@ export const Notes: React.FC<NotesProps> = ({ isOpen }) => {
                             try {
                               await updateItem(selectedItem.id, {
                                 type: 'task',
-                                status: 'start'
+                                status: 'start',
+                                reminderDate: null,
+                                recurrence: null
                               } as any);
                             } catch (error) {
                               console.error('Failed to clear date:', error);
@@ -346,7 +348,9 @@ export const Notes: React.FC<NotesProps> = ({ isOpen }) => {
                             try {
                               await updateItem(selectedItem.id, {
                                 type: 'task',
-                                status: 'start'
+                                status: 'start',
+                                reminderDate: null,
+                                recurrence: null
                               } as any);
                             } catch (error) {
                               console.error('Failed to clear recurrence:', error);

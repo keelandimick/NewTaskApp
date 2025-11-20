@@ -10,6 +10,7 @@ interface ProcessedText {
   correctedText: string;
   hasLinks: boolean;
   suggestedListId?: string;
+  suggestedPriority?: 'now' | 'high' | 'low';
 }
 
 // Function to detect URLs in text
@@ -21,94 +22,69 @@ function detectUrls(text: string): string[] {
 // Function to process text with AI and match to lists
 export async function processTextWithAI(text: string, lists?: Array<{id: string, name: string}>): Promise<ProcessedText> {
   try {
-    // First, correct the text
-    const correctionResponse = await openai.chat.completions.create({
+    // Single combined AI call for better performance
+    const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `You are a helpful assistant that corrects spelling in task titles. 
-          Rules:
-          1. Fix spelling mistakes only
-          2. Capitalize ONLY: 
-             - The first letter of the whole text
-             - Proper nouns (names like John, Sarah, Microsoft, Google)
-             - Place names (New York, London, California)
-          3. Do NOT capitalize common words like: with, to, from, at, in, on, for, and, the, a, an, need, want, should, must
-          4. NEVER change anything in URLs, domains, or email addresses:
-             - Keep ALL URLs exactly as typed (example.com, EXAMPLE.COM, Example.com stay as is)
-             - Never capitalize any part of a web address or domain
-             - If you see .com, .co, .org, www., http://, https:// - leave everything around it unchanged
-          5. Return ONLY the corrected text
-          6. NEVER add any punctuation
-          7. Examples:
-             - "talked with john" → "Talked with John"
-             - "need to visit microsoft.com" → "Need to visit microsoft.com" (NOT Microsoft.com)
-             - "check keelanscott.co website" → "Check keelanscott.co website"`
+          content: `You are a helpful assistant that processes task titles. You must:
+1. Fix spelling mistakes
+2. Capitalize ONLY the first letter and proper nouns (names, places)
+3. Do NOT capitalize common words like: with, to, from, at, in, on, for, and, the, a, an
+4. NEVER change URLs, domains, or email addresses - keep them exactly as typed
+5. Match the task to the most appropriate list based on content and keywords
+6. Determine priority based on urgency indicators:
+   - "now" for: urgent, ASAP, immediately, today, critical, emergency, important, !!!, ***
+   - "high" for: soon, tomorrow, this week, priority, deadline, !, **, HIGH
+   - "low" for: everything else (default)
+
+Return ONLY a JSON object in this exact format:
+{"correctedText": "corrected task text", "listId": "matching-list-id", "priority": "now|high|low"}
+
+NEVER add punctuation. Return ONLY the JSON object, nothing else.`
         },
         {
           role: "user",
-          content: text
+          content: lists && lists.length > 0
+            ? `Task: "${text}"\n\nAvailable lists:\n${lists.map(l => `- ${l.name} (id: ${l.id})`).join('\n')}\n\nProcess this task and return the JSON.`
+            : `Task: "${text}"\n\nNo lists available. Process the task and return JSON with correctedText and priority only.`
         }
       ],
       temperature: 0.3,
-      max_tokens: 500
+      max_tokens: 200
     });
 
-    const correctedText = correctionResponse.choices[0]?.message?.content || text;
+    let content = response.choices[0]?.message?.content || '{}';
+
+    // Remove markdown code blocks if present
+    content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+
+    const parsed = JSON.parse(content);
+
+    const correctedText = parsed.correctedText || text;
     let suggestedListId: string | undefined;
-    
-    // If lists are provided, find the best matching list
-    if (lists && lists.length > 0) {
-      const listMatchResponse = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: `You are a helpful assistant that matches tasks to lists based on their content.
-            Given a task title and available lists, choose the most appropriate list.
-            
-            Rules:
-            1. Match based on context and keywords in the task
-            2. Consider list names and what type of tasks would logically belong there
-            3. Look for keywords that match list names (e.g., "business meeting" → Business list)
-            4. Common patterns:
-               - Business/Work lists: meetings, clients, projects, revenue, sales, office, work
-               - Personal lists: family, friends, home, health, errands, personal
-               - Shopping lists: buy, purchase, get, shop, store
-            5. If no clear match, choose the list that seems most general (often "Personal" or the first list)
-            6. You MUST return one of the provided list IDs exactly as shown
-            7. Return ONLY the list ID, nothing else`
-          },
-          {
-            role: "user",
-            content: `Task: "${correctedText}"\n\nAvailable lists:\n${lists.map(l => `- ${l.name} (id: ${l.id})`).join('\n')}\n\nAnalyze the task content and match it to the most appropriate list based on keywords and context. Return only the ID.`
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 50
-      });
-      
-      const matchedId = listMatchResponse.choices[0]?.message?.content?.trim();
-      // Verify the ID exists in our lists
-      if (matchedId && lists.find(l => l.id === matchedId)) {
-        suggestedListId = matchedId;
-      }
+
+    // Verify the list ID exists
+    if (parsed.listId && lists && lists.find(l => l.id === parsed.listId)) {
+      suggestedListId = parsed.listId;
     }
-    
+
     const urls = detectUrls(correctedText);
-    
+
     return {
       correctedText: correctedText.trim(),
       hasLinks: urls.length > 0,
-      suggestedListId
+      suggestedListId,
+      suggestedPriority: parsed.priority || 'low'
     };
   } catch (error) {
     console.error('AI processing error:', error);
     // Fallback to original text if AI fails
     return {
       correctedText: text,
-      hasLinks: detectUrls(text).length > 0
+      hasLinks: detectUrls(text).length > 0,
+      suggestedPriority: 'low'
     };
   }
 }
@@ -158,13 +134,28 @@ export function renderTextWithLinks(text: string): React.ReactNode {
 
 // Function to categorize items using AI
 export async function categorizeItems(
-  items: Array<{id: string, title: string}>,
-  listName: string
+  itemsToCategorize: Array<{id: string, title: string}>,
+  listName: string,
+  existingCategorizedItems?: Array<{id: string, title: string, category: string}>
 ): Promise<Array<{id: string, category: string}>> {
   try {
-    if (items.length === 0) {
+    if (itemsToCategorize.length === 0) {
       return [];
     }
+
+    // Build context about existing categories
+    const existingCategoriesContext = existingCategorizedItems && existingCategorizedItems.length > 0
+      ? `\n\nEXISTING CATEGORIES AND ITEMS (for context):\n${
+          // Group by category
+          Object.entries(
+            existingCategorizedItems.reduce((acc, item) => {
+              if (!acc[item.category]) acc[item.category] = [];
+              acc[item.category].push(item.title);
+              return acc;
+            }, {} as Record<string, string[]>)
+          ).map(([cat, titles]) => `${cat}:\n${titles.map(t => `  - ${t}`).join('\n')}`).join('\n\n')
+        }`
+      : '';
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -173,38 +164,38 @@ export async function categorizeItems(
           role: "system",
           content: `You are a helpful assistant that organizes tasks into categories.
 
-Given a list of items and the list name, create 3-7 categories that make sense for organizing these items.
-The categories should be:
-1. Contextually appropriate for a "${listName}" list
-2. Short and clear (1-3 words max)
-3. Based on the actual items provided
-4. Logical groupings that help organize the tasks
-
-For example:
-- "Personal" list might have: Shopping, Health, Home, Family, Errands
-- "Work" list might have: Meetings, Projects, Admin, Clients
-- "Fitness" list might have: Cardio, Strength, Meal Prep, Recovery
+Given uncategorized items and existing categories (if any), assign the uncategorized items to appropriate categories.
 
 IMPORTANT RULES:
-1. Consider the list name "${listName}" when creating categories
-2. Don't create business/work categories for personal lists
-3. Don't create personal/home categories for business lists
-4. Create categories based on themes you see in the actual items
-5. Each item must be assigned to exactly one category
-6. You decide how many categories to create (3-7 range) based on item diversity
+1. Review the uncategorized items to understand what needs to be categorized
+2. If existing categories are provided, consider using them when appropriate
+3. You may create NEW categories if the uncategorized items don't fit existing ones
+4. You may CONSOLIDATE categories - if it makes sense to merge existing categories with new items, do so
+5. Categories should be:
+   - Contextually appropriate for a "${listName}" list
+   - Short and clear (1-3 words max)
+   - Logical groupings that help organize tasks
+6. Each uncategorized item must be assigned to exactly one category
+7. Aim for 3-7 total categories (including existing ones)
+
+Examples of good categories:
+- "Personal" list: Shopping, Health, Home, Family, Errands
+- "Work" list: Meetings, Projects, Admin, Clients
+- "Fitness" list: Cardio, Strength, Meal Prep, Recovery
 
 Return a JSON object with this exact format:
 {
-  "categories": ["Category1", "Category2", "Category3"],
   "assignments": [
-    {"id": "item-id-1", "category": "Category1"},
-    {"id": "item-id-2", "category": "Category2"}
+    {"id": "item-id-1", "category": "Category Name"},
+    {"id": "item-id-2", "category": "Another Category"}
   ]
-}`
+}
+
+ONLY return assignments for the uncategorized items provided.`
         },
         {
           role: "user",
-          content: `List name: "${listName}"\n\nItems to categorize:\n${items.map(item => `- ${item.title} (id: ${item.id})`).join('\n')}\n\nCreate appropriate categories for this "${listName}" list and assign each item to a category. Return only the JSON object.`
+          content: `List name: "${listName}"${existingCategoriesContext}\n\nUNCATEGORIZED ITEMS TO ASSIGN:\n${itemsToCategorize.map(item => `- ${item.title} (id: ${item.id})`).join('\n')}\n\nAssign each uncategorized item to the most appropriate category (existing or new). Return only the JSON object.`
         }
       ],
       temperature: 0.4,
@@ -223,7 +214,7 @@ Return a JSON object with this exact format:
   } catch (error) {
     console.error('Categorization error:', error);
     // Return uncategorized items on error
-    return items.map(item => ({
+    return itemsToCategorize.map(item => ({
       id: item.id,
       category: 'Uncategorized'
     }));

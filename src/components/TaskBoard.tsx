@@ -342,11 +342,20 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
                   Categories
                 </button>
               </div>
-              {/* Re-categorize refresh button */}
-              {displayMode === 'category' && (
-                <button
+              {/* Re-categorize refresh button - only show if uncategorized items exist */}
+              {displayMode === 'category' && (() => {
+                // Check if there are any uncategorized items
+                const hasUncategorized = items.some(item =>
+                  item.type === 'task' &&
+                  (!item.category || item.category === 'Uncategorized')
+                );
+
+                if (!hasUncategorized) return null;
+
+                return (
+                  <button
                   onClick={async () => {
-                    if (!window.confirm('Re-categorize all items? This will use AI to reorganize items in all your lists.')) return;
+                    if (!window.confirm('Categorize uncategorized items? AI will review them and assign to existing or new categories.')) return;
 
                     setIsCategorizing(true);
                     setCategorizeProgress(0);
@@ -360,21 +369,33 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
                       const totalLists = lists.length;
                       for (let i = 0; i < lists.length; i++) {
                         const list = lists[i];
-                        const listItems = allItems.filter(item =>
+
+                        // Get ALL task items for context
+                        const allListItems = allItems.filter(item =>
                           item.listId === list.id &&
                           !item.deletedAt &&
                           item.status !== 'complete' &&
-                          item.type === 'task' // Only categorize tasks
+                          item.type === 'task'
                         );
 
-                        if (listItems.length > 0) {
+                        // Separate uncategorized items (to be categorized) from categorized items (for context)
+                        const uncategorizedItems = allListItems.filter(item =>
+                          !item.category || item.category === 'Uncategorized'
+                        );
+
+                        const categorizedItems = allListItems.filter(item =>
+                          item.category && item.category !== 'Uncategorized'
+                        );
+
+                        if (uncategorizedItems.length > 0) {
                           // Update progress for this list
                           const baseProgress = (i / totalLists) * 100;
                           setCategorizeProgress(Math.round(Math.max(baseProgress, 5)));
 
                           const categorizations = await categorizeItems(
-                            listItems.map(item => ({ id: item.id, title: item.title })),
-                            list.name
+                            uncategorizedItems.map(item => ({ id: item.id, title: item.title })),
+                            list.name,
+                            categorizedItems.map(item => ({ id: item.id, title: item.title, category: item.category! }))
                           );
 
                           // Progress after AI completes
@@ -410,7 +431,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
                       ? 'text-gray-400 cursor-not-allowed'
                       : 'text-gray-600 hover:bg-gray-100'
                   }`}
-                  title="Re-categorize all items"
+                  title="Categorize uncategorized items using AI"
                 >
                   {isCategorizing ? (
                     <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -422,7 +443,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
                     </svg>
                   )}
                 </button>
-              )}
+                );
+              })()}
             </div>
           )}
 
