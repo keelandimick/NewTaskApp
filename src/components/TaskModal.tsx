@@ -253,6 +253,11 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
             New Item
           </h2>
 
+          {/* AI Info - above title */}
+          <p className="text-xs text-gray-600 mb-3">
+            Your task will be automatically matched to the best list and assigned the appropriate priority based on the title.
+          </p>
+
           {/* Title */}
           <div className="mb-4">
             <input
@@ -286,13 +291,6 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
               }
               return null;
             })()}
-          </div>
-
-          {/* AI Info Blurb */}
-          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-xs text-blue-800">
-              <span className="font-semibold">AI-Powered Smart Sorting:</span> Your task will be automatically matched to the best list and assigned the appropriate priority based on the title.
-            </p>
           </div>
 
           {/* Actions */}

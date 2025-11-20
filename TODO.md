@@ -15,13 +15,7 @@ Enable push notifications for desktop and mobile
 - PWA support for home screen installation
 - Notification permissions UI
 
-### 3. Categories/Columns Toggle for Reminders & Recurring Tabs
-Implement category-based view organization
-- Add categories/columns toggle for Reminders and Recurring tabs
-- Use column titles as categories
-- Code-based categorization only (no AI when refreshing categories)
-
-### 4. File Attachments
+### 3. File Attachments
 Implement file attachment directly to items
 - Allow users to attach files to tasks/reminders
 - Display attached files in Notes section

@@ -99,23 +99,34 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
     { id: 'complete', title: 'Completed Items' },
   ];
 
-  // Get category columns from items (only for tasks)
+  // Get category columns based on current view
   const getCategoryColumns = () => {
-    const categories = new Set<string>();
-    items.forEach(item => {
-      if (item.type === 'task' && item.category) {
-        categories.add(item.category);
-      }
-    });
+    if (currentView === 'tasks') {
+      // For tasks: Use AI-generated categories
+      const categories = new Set<string>();
+      items.forEach(item => {
+        if (item.type === 'task' && item.category) {
+          categories.add(item.category);
+        }
+      });
 
-    const categoryList = Array.from(categories)
-      .sort()
-      .map(cat => ({ id: cat, title: cat }));
+      const categoryList = Array.from(categories)
+        .sort()
+        .map(cat => ({ id: cat, title: cat }));
 
-    // Always add "Uncategorized" at the bottom
-    categoryList.push({ id: 'uncategorized', title: 'Uncategorized' });
+      // Always add "Uncategorized" at the bottom for tasks
+      categoryList.push({ id: 'uncategorized', title: 'Uncategorized' });
 
-    return categoryList;
+      return categoryList;
+    } else if (currentView === 'reminders') {
+      // For reminders: Use status as categories (no uncategorized - all reminders have a status)
+      return reminderColumns;
+    } else if (currentView === 'recurring') {
+      // For recurring: Use frequency as categories (no uncategorized - all recurring items have a frequency)
+      return recurringColumns;
+    }
+
+    return [];
   };
 
   const columns = displayMode === 'category'
@@ -165,9 +176,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
     localStorage.setItem('darkMode', darkMode.toString());
   }, [darkMode]);
 
-  // Reset to column view when switching away from Tasks tab
+  // Reset to column view when switching to trash or complete (category not supported there)
   React.useEffect(() => {
-    if (currentView !== 'tasks' && displayMode === 'category') {
+    if ((currentView === 'trash' || currentView === 'complete') && displayMode === 'category') {
       setDisplayMode('column');
     }
   }, [currentView, displayMode, setDisplayMode]);
@@ -315,8 +326,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
             {getViewInfo().title}
           </h2>
 
-          {/* Column/Category toggle - inline with title, only for Tasks tab */}
-          {currentView === 'tasks' && (
+          {/* Column/Category toggle - inline with title, for Tasks, Reminders, and Recurring tabs */}
+          {(currentView === 'tasks' || currentView === 'reminders' || currentView === 'recurring') && (
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
                 <button
@@ -342,8 +353,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
                   Categories
                 </button>
               </div>
-              {/* Re-categorize refresh button - only show if uncategorized items exist */}
-              {displayMode === 'category' && (() => {
+              {/* Re-categorize refresh button - only show for Tasks view if uncategorized items exist */}
+              {currentView === 'tasks' && displayMode === 'category' && (() => {
                 // Check if there are any uncategorized items
                 const hasUncategorized = items.some(item =>
                   item.type === 'task' &&
@@ -472,14 +483,35 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
         </div>
 
         <div className="flex gap-4 p-6 pt-3 flex-1 overflow-auto">
-          {displayMode === 'category' && currentView === 'tasks' ? (
+          {displayMode === 'category' && (currentView === 'tasks' || currentView === 'reminders' || currentView === 'recurring') ? (
             <>
               {/* Single column category view with sub-headers */}
               <div className="flex-1 flex flex-col gap-3 overflow-auto">
                 {getCategoryColumns().map(category => {
-                  const categoryItems = category.id === 'uncategorized'
-                    ? items.filter(item => item.type === 'task' && !item.category && item.status !== 'complete')
-                    : items.filter(item => item.type === 'task' && item.category === category.id && item.status !== 'complete');
+                  let categoryItems: typeof items;
+
+                  if (currentView === 'tasks') {
+                    // For tasks: filter by category property
+                    categoryItems = category.id === 'uncategorized'
+                      ? items.filter(item => item.type === 'task' && !item.category && item.status !== 'complete')
+                      : items.filter(item => item.type === 'task' && item.category === category.id && item.status !== 'complete');
+                  } else if (currentView === 'reminders') {
+                    // For reminders: filter by status (which matches category.id)
+                    categoryItems = items.filter(item =>
+                      item.type === 'reminder' &&
+                      !item.recurrence &&
+                      item.status === category.id
+                    );
+                  } else if (currentView === 'recurring') {
+                    // For recurring: filter by recurrence frequency (which matches category.id)
+                    categoryItems = items.filter(item =>
+                      item.type === 'reminder' &&
+                      item.recurrence &&
+                      item.recurrence.frequency === category.id
+                    );
+                  } else {
+                    categoryItems = [];
+                  }
 
                   if (categoryItems.length === 0) return null;
 

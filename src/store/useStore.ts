@@ -71,7 +71,7 @@ export const useStore = create<Store>((set, get) => ({
   lists: [],
   currentListId: '',
   currentView: 'tasks',
-  displayMode: 'column',
+  displayMode: (localStorage.getItem('displayMode') as DisplayMode) || 'column',
   selectedItemId: null,
   highlightedItemId: null,
   loading: false,
@@ -557,6 +557,7 @@ export const useStore = create<Store>((set, get) => ({
 
   setDisplayMode: (mode) => {
     set({ displayMode: mode });
+    localStorage.setItem('displayMode', mode);
   },
   
   
