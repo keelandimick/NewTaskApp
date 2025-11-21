@@ -515,7 +515,7 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="w-64 bg-gray-50 border-r border-gray-200 h-screen flex flex-col">
+    <aside className="w-full md:w-64 bg-gray-50 border-r border-gray-200 h-screen flex flex-col">
       <div className="p-4">
         <h1 className="text-xl font-semibold text-gray-800">FlowTask</h1>
       </div>

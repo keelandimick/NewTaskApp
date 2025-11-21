@@ -184,6 +184,20 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen, onMob
     }
   }, [currentView, displayMode, setDisplayMode]);
 
+  // Force category view on mobile for better layout
+  React.useEffect(() => {
+    const checkMobile = () => {
+      const isMobile = window.innerWidth < 768;
+      if (isMobile && displayMode === 'column' && currentView !== 'trash' && currentView !== 'complete') {
+        setDisplayMode('category');
+      }
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, [displayMode, currentView, setDisplayMode]);
+
   // Close user menu when clicking outside
   React.useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -324,9 +338,9 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen, onMob
             {getViewInfo().title}
           </h2>
 
-          {/* Column/Category toggle - inline with title, for Tasks, Reminders, and Recurring tabs */}
+          {/* Column/Category toggle - inline with title, for Tasks, Reminders, and Recurring tabs - hidden on mobile */}
           {(currentView === 'tasks' || currentView === 'reminders' || currentView === 'recurring') && (
-            <div className="flex items-center gap-2">
+            <div className="hidden md:flex items-center gap-2">
               <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
                 <button
                   onClick={() => setDisplayMode('column')}
@@ -481,95 +495,12 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen, onMob
           )}
         </div>
 
-        {/* On mobile, when notes are open, show only notes */}
-        {notesOpen ? (
-          <div className="flex gap-4 p-6 pt-3 flex-1 overflow-auto">
-            {/* On mobile, hide columns when notes are open */}
-            <div className="hidden md:flex flex-1 gap-4">
-              {displayMode === 'category' && (currentView === 'tasks' || currentView === 'reminders' || currentView === 'recurring') ? (
-                <div className="flex-1 flex flex-col gap-3 overflow-auto">
-                  {getCategoryColumns().map(category => {
-                    let categoryItems: typeof items;
-
-                    if (currentView === 'tasks') {
-                      // For tasks: filter by category property
-                      categoryItems = category.id === 'uncategorized'
-                        ? items.filter(item => item.type === 'task' && !item.category && item.status !== 'complete')
-                        : items.filter(item => item.type === 'task' && item.category === category.id && item.status !== 'complete');
-                    } else if (currentView === 'reminders') {
-                      // For reminders: filter by status (which matches category.id)
-                      categoryItems = items.filter(item =>
-                        item.type === 'reminder' &&
-                        !item.recurrence &&
-                        item.status === category.id
-                      );
-                    } else if (currentView === 'recurring') {
-                      // For recurring: filter by recurrence frequency (which matches category.id)
-                      categoryItems = items.filter(item =>
-                        item.type === 'reminder' &&
-                        item.recurrence &&
-                        item.recurrence.frequency === category.id
-                      );
-                    } else {
-                      categoryItems = [];
-                    }
-
-                    if (categoryItems.length === 0) return null;
-
-                    return (
-                      <div key={category.id}>
-                        {/* Category sub-header */}
-                        <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2 px-2">
-                          {category.title}
-                        </h3>
-                        {/* Items in this category */}
-                        <div>
-                          {categoryItems.map(item => (
-                            <TaskCard key={item.id} item={item} />
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <>
-                  {/* Standard column view */}
-                  {columns.map((column, index) => (
-                    <React.Fragment key={column.id}>
-                      <TaskColumn
-                        title={column.title}
-                        columnId={column.id}
-                        items={
-                          currentView === 'trash'
-                            ? items
-                            : items.filter(item => item.status === column.id)
-                        }
-                      />
-                      {index < columns.length - 1 && (
-                        <div className="w-px bg-gray-200" />
-                      )}
-                    </React.Fragment>
-                  ))}
-                </>
-              )}
-            </div>
-
-            {/* Divider between columns and notes - only on desktop */}
-            <div className="hidden md:block w-px bg-gray-200" />
-
-            {/* Notes panel - full width on mobile, normal width on desktop */}
-            <div className="flex-1 md:flex-1">
-              <Notes isOpen={true} onMobileBack={() => setSelectedItem(null)} />
-            </div>
-          </div>
-        ) : (
-          <div className="flex gap-4 p-6 pt-3 flex-1 overflow-auto">
-            {displayMode === 'category' && (currentView === 'tasks' || currentView === 'reminders' || currentView === 'recurring') ? (
-              <>
-                {/* Single column category view with sub-headers */}
-                <div className="flex-1 flex flex-col gap-3 overflow-auto">
-                  {getCategoryColumns().map(category => {
+        <div className="flex gap-4 p-6 pt-3 flex-1 overflow-auto">
+          {displayMode === 'category' && (currentView === 'tasks' || currentView === 'reminders' || currentView === 'recurring') ? (
+            <>
+              {/* Single column category view with sub-headers - hide on mobile when notes open */}
+              <div className={`flex-1 flex flex-col gap-3 overflow-auto ${notesOpen ? 'hidden md:flex' : ''}`}>
+                {getCategoryColumns().map(category => {
                   let categoryItems: typeof items;
 
                   if (currentView === 'tasks') {
@@ -613,30 +544,43 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen, onMob
                   );
                 })}
               </div>
+              {notesOpen && (
+                <>
+                  <div className={`w-px bg-gray-200 ${notesOpen ? 'hidden md:block' : ''}`} />
+                  <Notes isOpen={true} onMobileBack={() => setSelectedItem(null)} />
+                </>
+              )}
             </>
           ) : (
             <>
-              {/* Standard column view */}
-              {columns.map((column, index) => (
-                <React.Fragment key={column.id}>
-                  <TaskColumn
-                    title={column.title}
-                    columnId={column.id}
-                    items={
-                      currentView === 'trash'
-                        ? items
-                        : items.filter(item => item.status === column.id)
-                    }
-                  />
-                  {index < columns.length - 1 && (
-                    <div className="w-px bg-gray-200" />
-                  )}
-                </React.Fragment>
-              ))}
+              {/* Standard column view - hide on mobile when notes open */}
+              <div className={`flex gap-4 flex-1 ${notesOpen ? 'hidden md:flex' : 'flex'}`}>
+                {columns.map((column, index) => (
+                  <React.Fragment key={column.id}>
+                    <TaskColumn
+                      title={column.title}
+                      columnId={column.id}
+                      items={
+                        currentView === 'trash'
+                          ? items
+                          : items.filter(item => item.status === column.id)
+                      }
+                    />
+                    {index < columns.length - 1 && (
+                      <div className="w-px bg-gray-200" />
+                    )}
+                  </React.Fragment>
+                ))}
+              </div>
+              {notesOpen && (
+                <>
+                  <div className="hidden md:block w-px bg-gray-200" />
+                  <Notes isOpen={true} onMobileBack={() => setSelectedItem(null)} />
+                </>
+              )}
             </>
           )}
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Re-categorization Progress Modal */}
