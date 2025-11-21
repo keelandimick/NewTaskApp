@@ -547,7 +547,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen, onMob
               {notesOpen && (
                 <>
                   <div className={`w-px bg-gray-200 ${notesOpen ? 'hidden md:block' : ''}`} />
-                  <Notes isOpen={true} onMobileBack={() => setSelectedItem(null)} />
+                  <Notes isOpen={true} />
                 </>
               )}
             </>
@@ -575,7 +575,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen, onMob
               {notesOpen && (
                 <>
                   <div className="hidden md:block w-px bg-gray-200" />
-                  <Notes isOpen={true} onMobileBack={() => setSelectedItem(null)} />
+                  <Notes isOpen={true} />
                 </>
               )}
             </>
