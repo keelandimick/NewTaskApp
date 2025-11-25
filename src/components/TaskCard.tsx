@@ -24,7 +24,7 @@ const priorityLabels: Record<Priority, string> = {
 };
 
 export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
-  const { deleteItem, updateItem, currentView, highlightedItemId, lists, selectedItemId, setSelectedItem, setHighlightedItem, itemsInFlight } = useStoreWithAuth();
+  const { deleteItem, updateItem, currentView, highlightedItemId, lists, selectedItemId, setSelectedItem, setHighlightedItem, itemsInFlight, isDashboardView, setDashboardView, setCurrentView, setCurrentList } = useStoreWithAuth();
   const [showEditModal, setShowEditModal] = React.useState(false);
   const [showPriorityOptions, setShowPriorityOptions] = React.useState(false);
   const isHighlighted = highlightedItemId === item.id;
@@ -261,12 +261,17 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
             // Capitalize first letter
             displayText = displayText.charAt(0).toUpperCase() + displayText.slice(1);
 
+            // For interval-based recurrences (minutely/hourly), use reminderDate for accurate local time
+            const timeDisplay = (item.recurrence.frequency === 'minutely' || item.recurrence.frequency === 'hourly') && item.type === 'reminder' && item.reminderDate
+              ? format(item.reminderDate, 'h:mm a')
+              : format(new Date(`2000-01-01T${item.recurrence.time}`), 'h:mm a');
+
             return (
               <div className="text-[11px] text-gray-400 flex items-center gap-1 mt-0.5">
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-                {`${displayText} at ${format(new Date(`2000-01-01T${item.recurrence.time}`), 'h:mm a')}`}
+                {`${displayText} at ${timeDisplay}`}
               </div>
             );
           })()}
@@ -292,8 +297,33 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
                         onClick={async (e) => {
                           e.stopPropagation();
                           setShowPriorityOptions(false);
+                          // Guard check: Don't update if priority is already the same
+                          if (item.priority === priority) return;
+
+                          const oldPriority = item.priority;
                           try {
                             await updateItem(item.id, { priority });
+
+                            // Navigate if changing priority away from "now" while in Dashboard
+                            if (isDashboardView && oldPriority === 'now' && priority !== 'now') {
+                              setDashboardView(false);
+                              setCurrentView('tasks');
+                              setCurrentList(item.listId);
+
+                              // Highlight the item after navigation
+                              setTimeout(() => {
+                                setSelectedItem(item.id);
+                                setHighlightedItem(item.id);
+
+                                // Scroll to item
+                                setTimeout(() => {
+                                  const element = document.getElementById(`item-${item.id}`);
+                                  if (element) {
+                                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  }
+                                }, 100);
+                              }, 50);
+                            }
                           } catch (error) {
                             console.error('Failed to update priority:', error);
                           }

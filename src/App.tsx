@@ -14,6 +14,7 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { Sidebar } from './components/Sidebar';
 import { TaskBoard } from './components/TaskBoard';
+import { DashboardView } from './components/DashboardView';
 import { TaskCard } from './components/TaskCard';
 import { Auth } from './components/Auth';
 import { useStoreWithAuth } from './store/useStoreWithAuth';
@@ -22,10 +23,49 @@ import { TaskStatus, ReminderStatus } from './types';
 
 function App() {
   const { user, loading } = useAuth();
-  const { updateItem, moveItem, getFilteredItems, currentView, currentListId, displayMode, setSelectedItem, setHighlightedItem, selectedItemId } = useStoreWithAuth();
+  const { updateItem, moveItem, getFilteredItems, currentView, currentListId, displayMode, isDashboardView, setDashboardView, setSelectedItem, setHighlightedItem, selectedItemId } = useStoreWithAuth();
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const items = getFilteredItems();
   const notesOpen = !!selectedItemId;
+
+  // Dashboard reset threshold: 30 minutes
+  const DASHBOARD_RESET_THRESHOLD = 30 * 60 * 1000; // milliseconds
+
+  // Handle first launch and background/foreground logic
+  React.useEffect(() => {
+    // Check if this is the first launch
+    const hasLaunchedBefore = localStorage.getItem('hasLaunchedBefore');
+    if (!hasLaunchedBefore && user) {
+      setDashboardView(true);
+      localStorage.setItem('hasLaunchedBefore', 'true');
+    }
+
+    // Handle page visibility changes (background/foreground)
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Page going to background - save timestamp
+        localStorage.setItem('backgroundTimestamp', Date.now().toString());
+      } else {
+        // Page coming to foreground - check how long it was backgrounded
+        const backgroundTimestamp = localStorage.getItem('backgroundTimestamp');
+        if (backgroundTimestamp) {
+          const timeInBackground = Date.now() - parseInt(backgroundTimestamp, 10);
+
+          if (timeInBackground > DASHBOARD_RESET_THRESHOLD) {
+            // Was in background for > 30 minutes → show Dashboard
+            setDashboardView(true);
+            console.log(`📊 App was in background for ${Math.round(timeInBackground / 60000)} minutes → showing Dashboard`);
+          } else {
+            // Quick switch → keep current view
+            console.log(`⚡️ Quick switch (${Math.round(timeInBackground / 1000)} seconds) → keeping current view`);
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [user, setDashboardView, DASHBOARD_RESET_THRESHOLD]);
 
   // Get items in visual order for keyboard navigation
   const getVisuallyOrderedItems = () => {
@@ -176,8 +216,16 @@ function App() {
     // Check if dropping on a list in sidebar
     if (overId.startsWith('list-')) {
       const newListId = overId.replace('list-', '');
+      const item = items.find(i => i.id === itemId);
 
-      updateItem(itemId, { listId: newListId });
+      // Guard check: Don't update if item is already in this list
+      if (item && item.listId === newListId) {
+        setActiveId(null);
+        return;
+      }
+
+      // Clear category when moving to a new list (categories are list-specific)
+      updateItem(itemId, { listId: newListId, category: undefined });
     } else {
       // Handle dropping on columns or cards
       const taskColumns = ['start', 'in-progress', 'complete'];
@@ -259,9 +307,13 @@ function App() {
         {/* Sidebar */}
         <Sidebar />
 
-        {/* TaskBoard */}
+        {/* Dashboard or TaskBoard */}
         <main className="flex-1 overflow-hidden">
-          <TaskBoard activeId={activeId} notesOpen={notesOpen} />
+          {isDashboardView ? (
+            <DashboardView />
+          ) : (
+            <TaskBoard activeId={activeId} notesOpen={notesOpen} />
+          )}
         </main>
       </div>
 

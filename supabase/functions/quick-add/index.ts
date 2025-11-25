@@ -60,7 +60,8 @@ customChrono.refiners.push({
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': '*',  // Allow all headers - security is via token validation
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
 serve(async (req) => {
@@ -199,34 +200,50 @@ NEVER add punctuation. Return ONLY the JSON object, nothing else.`
     let extractedDate: Date | null = null
     let detectedRecurrence: { frequency: string; time: string; interval?: number; originalText?: string } | null = null
 
-    // If Siri provided a date, use it directly (takes priority over detection)
+    // If Siri/iOS provided a date, use it directly (takes priority over detection)
     if (reminder_date) {
       extractedDate = new Date(reminder_date)
+
+      // Still strip time patterns from the title (e.g., "at 5pm")
+      const timePattern = /\b(at\s+)?(\d{1,2})(:\d{2})?\s*([ap]m?|AM|PM)?\b/i
+      extractedTitle = correctedText.replace(timePattern, '').trim()
+      if (extractedTitle.length > 0) {
+        extractedTitle = extractedTitle.charAt(0).toUpperCase() + extractedTitle.slice(1)
+      }
     } else {
       // Expand spelled-out numbers for better matching
       const expandedText = expandNumberWords(correctedText)
+      // Use expanded text for all pattern matching and replacement
+      correctedText = expandedText
 
       // Check for recurring patterns first (matching web TaskModal.tsx lines 85-136)
       const recurringPatterns = [
+        { pattern: /\bevery\s+\d+\s+minutes?\b/i, frequency: 'daily' }, // "every 2 minutes" -> daily (treat as minutely internally)
+        { pattern: /\bevery\s+\d+\s+hours?\b/i, frequency: 'daily' }, // "every 3 hours" -> daily (treat as hourly internally)
         { pattern: /\b(every\s+day|daily)\b/i, frequency: 'daily' },
         { pattern: /\b(every\s+week|weekly)\b/i, frequency: 'weekly' },
         { pattern: /\b(every\s+month|monthly)\b/i, frequency: 'monthly' },
         { pattern: /\b(every\s+year|yearly|annually)\b/i, frequency: 'yearly' },
         { pattern: /\bevery\s+(mon(day)?|tue(sday)?|wed(nesday)?|thu(rsday)?|fri(day)?|sat(urday)?|sun(day)?)\b/i, frequency: 'weekly' },
-        { pattern: /\bevery\s+\d+\s+hours?\b/i, frequency: 'daily' }, // "every 3 hours" -> daily (treat as hourly internally)
         { pattern: /\bevery\s+(other|2nd|second)\s+(mon(day)?|tue(sday)?|wed(nesday)?|thu(rsday)?|fri(day)?|sat(urday)?|sun(day)?)\b/i, frequency: 'weekly' },
         { pattern: /\b(weekdays|every\s+weekday)\b/i, frequency: 'daily' },
         { pattern: /\b(weekends|every\s+weekend)\b/i, frequency: 'weekly' }
       ]
 
       for (const { pattern, frequency } of recurringPatterns) {
-        const match = expandedText.match(pattern)
+        const match = correctedText.match(pattern)
         if (match) {
-          // Determine if it's hourly (for "every X hours" pattern)
+          // Determine if it's minutely or hourly (for "every X minutes/hours" pattern)
+          const isMinutely = match[0].toLowerCase().includes('minute')
           const isHourly = match[0].toLowerCase().includes('hour')
           let interval = 1
 
-          if (isHourly) {
+          if (isMinutely) {
+            const intervalMatch = match[0].match(/every\s+(\d+)\s+minutes?/)
+            if (intervalMatch) {
+              interval = parseInt(intervalMatch[1], 10)
+            }
+          } else if (isHourly) {
             const intervalMatch = match[0].match(/every\s+(\d+)\s+hours?/)
             if (intervalMatch) {
               interval = parseInt(intervalMatch[1], 10)
@@ -234,9 +251,9 @@ NEVER add punctuation. Return ONLY the JSON object, nothing else.`
           }
 
           detectedRecurrence = {
-            frequency: isHourly ? 'hourly' : frequency,
+            frequency: isMinutely ? 'minutely' : (isHourly ? 'hourly' : frequency),
             time: '09:00',
-            interval: isHourly ? interval : undefined,
+            interval: (isMinutely || isHourly) ? interval : undefined,
             originalText: match[0]
           }
 
@@ -275,21 +292,18 @@ NEVER add punctuation. Return ONLY the JSON object, nothing else.`
 
       // If no recurring pattern, try to extract a single date using Chrono
       if (!detectedRecurrence) {
-        // Use expanded text for Chrono to handle "at three" etc.
-        const parsedFromTitle = customChrono.parse(expandedText.trim())
+        // Use correctedText (already expanded) for Chrono
+        const parsedFromTitle = customChrono.parse(correctedText.trim())
         if (parsedFromTitle.length > 0) {
           extractedDate = parsedFromTitle[0].start.date()
-          // Remove the date text from the title using original text
+          // Remove the date text from the title
           extractedTitle = correctedText.replace(parsedFromTitle[0].text, '').trim()
-          // Also try removing with expanded version if original didn't match
-          if (extractedTitle === correctedText) {
-            const expandedMatch = expandedText.indexOf(parsedFromTitle[0].text)
-            if (expandedMatch !== -1) {
-              // Find corresponding position in original text
-              extractedTitle = correctedText.replace(/\b(at\s+)?\w+(\s*[ap]m?)?\b/i, '').trim()
-            }
-          }
-          // Re-capitalize after removing date text
+
+          // Also strip standalone time patterns (like "at 5pm") that Chrono might have missed
+          const timePattern = /\b(at\s+)?(\d{1,2})(:\d{2})?\s*([ap]m?|AM|PM)?\b/i
+          extractedTitle = extractedTitle.replace(timePattern, '').trim()
+
+          // Re-capitalize after removing date/time text
           if (extractedTitle.length > 0) {
             extractedTitle = extractedTitle.charAt(0).toUpperCase() + extractedTitle.slice(1)
           }
@@ -319,7 +333,12 @@ NEVER add punctuation. Return ONLY the JSON object, nothing else.`
         const now = new Date()
         let time: string
 
-        if (detectedRecurrence.frequency === 'hourly') {
+        if (detectedRecurrence.frequency === 'minutely') {
+          // For minutely: start from current time + interval
+          const nextOccurrence = new Date(now.getTime() + (detectedRecurrence.interval || 1) * 60 * 1000)
+          time = nextOccurrence.toTimeString().slice(0, 5)
+          reminderDate = nextOccurrence.toISOString()
+        } else if (detectedRecurrence.frequency === 'hourly') {
           // For hourly: start from current time + interval
           const nextOccurrence = new Date(now.getTime() + (detectedRecurrence.interval || 1) * 60 * 60 * 1000)
           time = nextOccurrence.toTimeString().slice(0, 5)

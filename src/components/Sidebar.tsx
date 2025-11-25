@@ -316,7 +316,7 @@ const DroppableListItem: React.FC<DroppableListItemProps> = ({ list, isActive, o
 };
 
 export const Sidebar: React.FC = () => {
-  const { lists, currentListId, setCurrentList, currentView, setCurrentView, addList, deleteList, items, loading, addItem, deleteItem } = useStoreWithAuth();
+  const { lists, currentListId, setCurrentList, currentView, setCurrentView, isDashboardView, setDashboardView, addList, deleteList, items, loading, addItem, deleteItem } = useStoreWithAuth();
   const { user } = useAuth();
   const userId = user?.id;
 
@@ -538,33 +538,52 @@ export const Sidebar: React.FC = () => {
       <div className="mx-4 border-b border-gray-200"></div>
 
       <div className="px-4 pt-4 pb-4">
-          {/* All Lists - Separate section like iOS */}
-          {showAllList && (
-            <>
-              <div className="mb-4">
-                <div className="space-y-1">
-                  <DroppableListItem
-                    key="all"
-                    list={{
-                      id: 'all',
-                      name: 'All Lists',
-                      color: '#6B7280',
-                      isLocked: false,
-                      createdAt: new Date(),
-                      updatedAt: new Date()
-                    } as any}
-                    isActive={currentListId === 'all' && currentView !== 'trash' && currentView !== 'complete'}
-                    onSelect={() => {
-                      setCurrentList('all');
-                      if (currentView === 'trash' || currentView === 'complete') setCurrentView('tasks');
-                    }}
-                  />
-                </div>
-              </div>
-              {/* Divider between All Lists and Personal Lists */}
-              <div className="border-b border-gray-200 mb-4"></div>
-            </>
-          )}
+          {/* Dashboard and All Lists - Grouped together like iOS */}
+          <div className="mb-4">
+            <div className="space-y-1">
+              {/* Dashboard Button */}
+              <button
+                onClick={() => {
+                  setDashboardView(true);
+                  setCurrentList('');  // Clear list selection
+                  if (currentView === 'trash' || currentView === 'complete') setCurrentView('tasks');
+                }}
+                className={`group relative w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center ${
+                  isDashboardView
+                    ? 'bg-purple-100 text-purple-700'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-4 h-4 mr-2 text-purple-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <span className="flex-1">Dashboard</span>
+              </button>
+
+              {/* All Lists Button (conditionally shown) */}
+              {showAllList && (
+                <DroppableListItem
+                  key="all"
+                  list={{
+                    id: 'all',
+                    name: 'All Lists',
+                    color: '#6B7280',
+                    isLocked: false,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                  } as any}
+                  isActive={currentListId === 'all' && currentView !== 'trash' && currentView !== 'complete' && !isDashboardView}
+                  onSelect={() => {
+                    setCurrentList('all');
+                    setDashboardView(false);
+                    if (currentView === 'trash' || currentView === 'complete') setCurrentView('tasks');
+                  }}
+                />
+              )}
+            </div>
+          </div>
+          {/* Divider between Dashboard/All Lists and Personal Lists */}
+          <div className="border-b border-gray-200 mb-4"></div>
 
           {/* Personal Lists header */}
           <div className="flex justify-between items-center mb-2">
@@ -597,9 +616,10 @@ export const Sidebar: React.FC = () => {
               <DroppableListItem
                 key={list.id}
                 list={list}
-                isActive={currentListId === list.id && currentView !== 'trash' && currentView !== 'complete'}
+                isActive={currentListId === list.id && currentView !== 'trash' && currentView !== 'complete' && !isDashboardView}
                 onSelect={() => {
                   setCurrentList(list.id);
+                  setDashboardView(false);
                   if (currentView === 'trash' || currentView === 'complete') setCurrentView('tasks');
                 }}
                 onDelete={list.id !== 'default' ? async () => {
@@ -630,9 +650,10 @@ export const Sidebar: React.FC = () => {
                   <DroppableListItem
                     key={list.id}
                     list={list}
-                    isActive={currentListId === list.id && currentView !== 'trash' && currentView !== 'complete'}
+                    isActive={currentListId === list.id && currentView !== 'trash' && currentView !== 'complete' && !isDashboardView}
                     onSelect={() => {
                       setCurrentList(list.id);
+                      setDashboardView(false);
                       if (currentView === 'trash' || currentView === 'complete') setCurrentView('tasks');
                     }}
                     onDelete={list.id !== 'default' ? async () => {
@@ -663,6 +684,7 @@ export const Sidebar: React.FC = () => {
           onClick={() => {
             setCurrentView('complete');
             setCurrentList(''); // Clear the selected list when complete is selected
+            setDashboardView(false); // Exit Dashboard
           }}
           className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
             currentView === 'complete'
@@ -673,11 +695,12 @@ export const Sidebar: React.FC = () => {
           <span className="mr-2">✓</span>
           Complete
         </button>
-        
+
         <button
           onClick={() => {
             setCurrentView('trash');
             setCurrentList(''); // Clear the selected list when trash is selected
+            setDashboardView(false); // Exit Dashboard
           }}
           className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
             currentView === 'trash'
@@ -707,7 +730,6 @@ export const Sidebar: React.FC = () => {
           setShowCreateModal(false);
         }}
         mode="create"
-        defaultColumn="start"
       />
       
       {/* Things Modal */}

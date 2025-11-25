@@ -513,9 +513,16 @@ export const Notes: React.FC<NotesProps> = ({ isOpen }) => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
                         <span>
-                          {selectedItem.recurrence.originalText
-                            ? `${selectedItem.recurrence.originalText} at ${format(new Date(`2000-01-01T${selectedItem.recurrence.time}`), 'h:mm a')}`
-                            : `${selectedItem.recurrence.frequency} at ${format(new Date(`2000-01-01T${selectedItem.recurrence.time}`), 'h:mm a')}`}
+                          {(() => {
+                            // For interval-based recurrences (minutely/hourly), use reminderDate for accurate local time
+                            const timeDisplay = (selectedItem.recurrence.frequency === 'minutely' || selectedItem.recurrence.frequency === 'hourly') && selectedItem.type === 'reminder' && selectedItem.reminderDate
+                              ? format(selectedItem.reminderDate, 'h:mm a')
+                              : format(new Date(`2000-01-01T${selectedItem.recurrence.time}`), 'h:mm a');
+
+                            return selectedItem.recurrence.originalText
+                              ? `${selectedItem.recurrence.originalText} at ${timeDisplay}`
+                              : `${selectedItem.recurrence.frequency} at ${timeDisplay}`;
+                          })()}
                         </span>
                       </div>
                       <button

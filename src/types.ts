@@ -58,7 +58,7 @@ export interface User {
 export type ViewMode = 'tasks' | 'reminders' | 'recurring' | 'trash' | 'complete';
 export type DisplayMode = 'column' | 'category';
 
-export type RecurrenceFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
+export type RecurrenceFrequency = 'minutely' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly';
 
 export interface RecurrenceSettings {
   frequency: RecurrenceFrequency;

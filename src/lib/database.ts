@@ -114,7 +114,7 @@ export const db = {
         list_id: item.listId,
         reminder_date: 'reminderDate' in item && item.reminderDate ? (item.reminderDate as Date).toISOString() : null,
         due_date: 'dueDate' in item && item.dueDate ? (item.dueDate as Date).toISOString() : null,
-        recurrence_settings: item.recurrence,
+        recurrence: item.recurrence,
         metadata: item.metadata,
         user_id: userId,
       })
@@ -152,7 +152,7 @@ export const db = {
     if ('category' in updates) updateData.category = updates.category;
     if ('reminderDate' in updates) updateData.reminder_date = updates.reminderDate ? updates.reminderDate.toISOString() : null;
     if ('dueDate' in updates) updateData.due_date = updates.dueDate ? updates.dueDate.toISOString() : null;
-    if ('recurrence' in updates) updateData.recurrence_settings = updates.recurrence;
+    if ('recurrence' in updates) updateData.recurrence = updates.recurrence;
     if ('metadata' in updates) updateData.metadata = updates.metadata;
     if ('deletedAt' in updates) updateData.deleted_at = updates.deletedAt ? updates.deletedAt.toISOString() : null;
     if ('position' in updates) updateData.position = updates.position;
@@ -283,6 +283,29 @@ export const db = {
       return emails.map(email => ({ email, exists: false }));
     }
   },
+
+  // Quick add using edge function (handles AI, date parsing, recurring patterns)
+  async quickAdd(text: string, reminderDate?: Date): Promise<Item> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('User not authenticated');
+
+    const payload: { text: string; reminder_date?: string } = { text };
+    if (reminderDate) {
+      payload.reminder_date = reminderDate.toISOString();
+    }
+
+    const { data, error } = await supabase.functions.invoke('quick-add', {
+      body: payload,
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+
+    if (error) throw error;
+    if (!data?.success || !data?.item) throw new Error('Failed to create item');
+
+    return dbItemToItem(data.item);
+  },
 };
 
 // Conversion helpers
@@ -309,7 +332,7 @@ export function dbItemToItem(dbItem: DbItem & { notes?: DbNote[] }): Item {
     updatedAt: new Date(dbItem.updated_at),
     listId: dbItem.list_id,
     category: (dbItem as any).category || undefined,
-    recurrence: dbItem.recurrence_settings as RecurrenceSettings | undefined,
+    recurrence: (dbItem as any).recurrence as RecurrenceSettings | undefined,
     metadata: dbItem.metadata || undefined,
     deletedAt: dbItem.deleted_at ? new Date(dbItem.deleted_at) : undefined,
     position: (dbItem as any).position || undefined,

@@ -1,27 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { useStoreWithAuth } from '../store/useStoreWithAuth';
-import { Priority, RecurrenceFrequency, ViewMode, Item } from '../types';
+import { useStore } from '../store/useStore';
+import { ViewMode, Item } from '../types';
 import { format } from 'date-fns';
+import { db } from '../lib/database';
 import customChrono from '../lib/chronoConfig';
-import { processTextWithAI } from '../lib/ai';
 
 interface TaskModalProps {
   isOpen: boolean;
   onClose: () => void;
   mode: 'create' | 'edit';
   editItem?: Item | null;
-  defaultColumn?: string;
 }
 
-export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, editItem, defaultColumn }) => {
+export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, editItem }) => {
   const {
-    addItem,
     items,
     currentListId,
     currentView,
     setCurrentView,
     setHighlightedItem,
-    lists,
     setCurrentList
   } = useStoreWithAuth();
 
@@ -53,7 +51,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, title, defaultColumn, currentListId, currentView]);
+  }, [isOpen, onClose, title, currentListId, currentView]);
 
   if (!isOpen) return null;
 
@@ -76,154 +74,38 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
     
     setIsProcessing(true);
 
-    // Extract date and recurring patterns from title automatically
-    let extractedTitle = title.trim();
-    let extractedDate: Date | undefined;
-    let detectedRecurrence: { frequency: RecurrenceFrequency; time: string; originalText?: string } | undefined;
-
-    // Check for recurring patterns first
-    const recurringPatterns = [
-      { pattern: /\b(every\s+day|daily)\b/i, frequency: 'daily' as RecurrenceFrequency },
-      { pattern: /\b(every\s+week|weekly)\b/i, frequency: 'weekly' as RecurrenceFrequency },
-      { pattern: /\b(every\s+month|monthly)\b/i, frequency: 'monthly' as RecurrenceFrequency },
-      { pattern: /\b(every\s+year|yearly|annually)\b/i, frequency: 'yearly' as RecurrenceFrequency },
-      { pattern: /\bevery\s+(mon(day)?|tue(sday)?|wed(nesday)?|thu(rsday)?|fri(day)?|sat(urday)?|sun(day)?)\b/i, frequency: 'weekly' as RecurrenceFrequency },
-      // Additional patterns - best effort basis
-      { pattern: /\bevery\s+\d+\s+hours?\b/i, frequency: 'daily' as RecurrenceFrequency }, // "every 3 hours" -> daily
-      { pattern: /\bevery\s+(other|2nd|second)\s+(mon(day)?|tue(sday)?|wed(nesday)?|thu(rsday)?|fri(day)?|sat(urday)?|sun(day)?)\b/i, frequency: 'weekly' as RecurrenceFrequency }, // "every other tuesday" -> weekly
-      { pattern: /\b(weekdays|every\s+weekday)\b/i, frequency: 'daily' as RecurrenceFrequency }, // "weekdays" -> daily
-      { pattern: /\b(weekends|every\s+weekend)\b/i, frequency: 'weekly' as RecurrenceFrequency } // "weekends" -> weekly
-    ];
-
-    for (const { pattern, frequency } of recurringPatterns) {
-      const match = title.match(pattern);
-      if (match) {
-        detectedRecurrence = {
-          frequency,
-          time: '09:00',
-          originalText: match[0] // Store the original pattern text
-        };
-        extractedTitle = title.replace(match[0], '').trim();
-        // Re-capitalize if needed after removing recurring pattern
-        if (extractedTitle.length > 0) {
-          extractedTitle = extractedTitle.charAt(0).toUpperCase() + extractedTitle.slice(1);
-        }
-
-        // Try to parse time from the title
-        const timeMatch = title.match(/\b(at\s+)?(\d{1,2})(:\d{2})?\s*(am|pm|AM|PM)?\b/i);
-        if (timeMatch && timeMatch[2] && detectedRecurrence) {
-          let hours = parseInt(timeMatch[2], 10);
-          const minutes = timeMatch[3] ? parseInt(timeMatch[3].slice(1), 10) : 0;
-
-          if (timeMatch[4]) {
-            const isPM = timeMatch[4].toLowerCase() === 'pm';
-            if (isPM && hours !== 12) hours += 12;
-            if (!isPM && hours === 12) hours = 0;
-          } else if (hours >= 1 && hours <= 11) {
-            hours += 12; // Default to PM for common reminder times
-          }
-
-          detectedRecurrence.time = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-
-          // Strip the time from the title (like reminders do)
-          extractedTitle = extractedTitle.replace(timeMatch[0], '').trim();
-          if (extractedTitle.length > 0) {
-            extractedTitle = extractedTitle.charAt(0).toUpperCase() + extractedTitle.slice(1);
-          }
-        }
-        break;
-      }
-    }
-
-    // If no recurring pattern found, try to extract a single date
-    if (!detectedRecurrence) {
-      const parsedFromTitle = customChrono.parse(title.trim());
-      if (parsedFromTitle.length > 0) {
-        extractedDate = parsedFromTitle[0].start.date();
-        // Remove the date text from the title
-        extractedTitle = title.replace(parsedFromTitle[0].text, '').trim();
-        // Re-capitalize if needed after removing date text
-        if (extractedTitle.length > 0) {
-          extractedTitle = extractedTitle.charAt(0).toUpperCase() + extractedTitle.slice(1);
-        }
-      }
-    }
-
-    // Now process the cleaned title with AI for spell correction, list matching, and priority detection
-    let aiSuggestedListId: string | undefined;
-    let aiSuggestedPriority: Priority = 'low';
     try {
-      const processed = await processTextWithAI(extractedTitle, lists.map(l => ({ id: l.id, name: l.name })));
-      extractedTitle = processed.correctedText;
-      aiSuggestedListId = processed.suggestedListId;
-      aiSuggestedPriority = processed.suggestedPriority || 'low';
-    } catch (error) {
-      console.error('AI processing failed, using original text:', error);
-      // Fallback: just capitalize first letter
-      if (extractedTitle.length > 0) {
-        extractedTitle = extractedTitle.charAt(0).toUpperCase() + extractedTitle.slice(1);
-      }
-    }
+      // Use edge function for all task creation (handles AI, dates, recurring patterns)
+      const newItem = await db.quickAdd(title.trim());
 
-    const hasDate = extractedDate || detectedRecurrence;
-    const itemType = hasDate ? 'reminder' : 'task';
+      // Add the new item to the store immediately (optimistic UI)
+      useStore.setState((state) => ({
+        items: [...state.items, newItem]
+      }));
 
-    const reminderDate = extractedDate && !detectedRecurrence ? extractedDate : undefined;
-
-    const recurrence = detectedRecurrence ? {
-      frequency: detectedRecurrence.frequency,
-      time: detectedRecurrence.time,
-      originalText: detectedRecurrence.originalText
-    } : undefined;
-
-    try {
-      // Use AI-suggested list if available, otherwise use current selection
-      let targetListId: string;
-      if (aiSuggestedListId) {
-        // Always prefer AI suggestion when available
-        targetListId = aiSuggestedListId;
-      } else if (currentListId === 'all') {
-        // If on "All" view with no AI suggestion, use first list
-        targetListId = lists[0]?.id;
-      } else {
-        // Otherwise use the currently selected list
-        targetListId = currentListId;
-      }
-
-      const newItemId = await addItem({
-        type: itemType,
-        title: extractedTitle,
-        priority: aiSuggestedPriority, // Use AI-suggested priority instead of manual selection
-        status: itemType === 'task' ? (defaultColumn as any || 'start') : 'within7',
-        listId: targetListId,
-        reminderDate,
-        recurrence,
-      } as any);
-
-      // Navigation logic - simplified and complete
-      // 1. Determine target view based on item type
+      // Determine target view based on item type
       let targetView: ViewMode;
-      if (recurrence) {
+      if (newItem.recurrence) {
         targetView = 'recurring';
-      } else if (reminderDate) {
+      } else if (newItem.type === 'reminder') {
         targetView = 'reminders';
       } else {
         targetView = 'tasks';
       }
 
-      // 2. Switch to the target list if it's different from current
-      if (currentListId !== targetListId) {
-        setCurrentList(targetListId);
+      // Switch to the target list if different from current
+      if (currentListId !== newItem.listId) {
+        setCurrentList(newItem.listId);
       }
 
-      // 3. Navigate to the appropriate view
+      // Navigate to the appropriate view
       if (targetView !== currentView) {
         setCurrentView(targetView);
       }
 
-      // 4. Highlight the new item after view/list change completes
+      // Highlight the new item after view/list change completes
       setTimeout(() => {
-        setHighlightedItem(newItemId);
+        setHighlightedItem(newItem.id);
       }, 100);
     } catch (error) {
       console.error('Failed to add item:', error);
@@ -264,7 +146,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
             />
             {mode === 'create' && (() => {
               // Check for recurring patterns
-              const recurringMatch = title.match(/\b(every\s+(other\s+)?\d*\s*(day|week|month|year|hours?|mon(day)?|tue(sday)?|wed(nesday)?|thu(rsday)?|fri(day)?|sat(urday)?|sun(day)?)|daily|weekly|monthly|yearly|annually|weekdays?|weekends?)\b/i);
+              const recurringMatch = title.match(/\b(every\s+(other\s+)?\d*\s*(day|week|month|year|minutes?|hours?|mon(day)?|tue(sday)?|wed(nesday)?|thu(rsday)?|fri(day)?|sat(urday)?|sun(day)?)|daily|weekly|monthly|yearly|annually|weekdays?|weekends?)\b/i);
               if (recurringMatch) {
                 // Format the recurring pattern nicely
                 let patternText = recurringMatch[0].toLowerCase();
@@ -291,27 +173,32 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, mode, edi
                 // Capitalize first letter
                 let displayText = patternText.charAt(0).toUpperCase() + patternText.slice(1);
 
-                // Parse time (with or without AM/PM)
-                const timeMatch = title.match(/\b(at\s+)?(\d{1,2})(:\d{2})?\s*(am|pm|AM|PM)?\b/i);
-                if (timeMatch && timeMatch[2]) {
-                  let hours = parseInt(timeMatch[2], 10);
-                  const minutes = timeMatch[3] ? parseInt(timeMatch[3].slice(1), 10) : 0;
+                // Only parse time if it's NOT an interval-based pattern (minutes/hours)
+                // For "every 5 minutes" or "every 2 hours", the number is the interval, not a clock time
+                const isIntervalBased = patternText.includes('minute') || patternText.includes('hour');
+                if (!isIntervalBased) {
+                  // Parse time (with or without AM/PM)
+                  const timeMatch = title.match(/\b(at\s+)?(\d{1,2})(:\d{2})?\s*(am|pm|AM|PM)?\b/i);
+                  if (timeMatch && timeMatch[2]) {
+                    let hours = parseInt(timeMatch[2], 10);
+                    const minutes = timeMatch[3] ? parseInt(timeMatch[3].slice(1), 10) : 0;
 
-                  // Parse AM/PM or use smart defaults
-                  if (timeMatch[4]) {
-                    const isPM = timeMatch[4].toLowerCase() === 'pm';
-                    if (isPM && hours !== 12) hours += 12;
-                    if (!isPM && hours === 12) hours = 0;
-                  } else if (hours >= 1 && hours <= 11) {
-                    hours += 12; // Default to PM
+                    // Parse AM/PM or use smart defaults
+                    if (timeMatch[4]) {
+                      const isPM = timeMatch[4].toLowerCase() === 'pm';
+                      if (isPM && hours !== 12) hours += 12;
+                      if (!isPM && hours === 12) hours = 0;
+                    } else if (hours >= 1 && hours <= 11) {
+                      hours += 12; // Default to PM
+                    }
+
+                    // Format time nicely
+                    const period = hours >= 12 ? 'PM' : 'AM';
+                    const displayHours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
+                    const formattedTime = `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
+
+                    displayText += ` at ${formattedTime}`;
                   }
-
-                  // Format time nicely
-                  const period = hours >= 12 ? 'PM' : 'AM';
-                  const displayHours = hours > 12 ? hours - 12 : (hours === 0 ? 12 : hours);
-                  const formattedTime = `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`;
-
-                  displayText += ` at ${formattedTime}`;
                 }
 
                 return (

@@ -25,6 +25,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
     lists,
     setSelectedItem,
     setHighlightedItem,
+    highlightedItemId,
     setCurrentList,
     items: allItems,
     updateItem,
@@ -197,13 +198,24 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
       const timer = setTimeout(() => {
         document.addEventListener('click', handleClickOutside);
       }, 0);
-      
+
       return () => {
         clearTimeout(timer);
         document.removeEventListener('click', handleClickOutside);
       };
     }
   }, [showUserMenu]);
+
+  // Auto-clear highlighted item after 3 seconds
+  React.useEffect(() => {
+    if (highlightedItemId) {
+      const timer = setTimeout(() => {
+        setHighlightedItem(null);
+      }, 3000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [highlightedItemId, setHighlightedItem]);
 
   return (
     <>
@@ -488,11 +500,11 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
                       item.status === category.id
                     );
                   } else if (currentView === 'recurring') {
-                    // For recurring: filter by recurrence frequency (which matches category.id)
+                    // For recurring: filter by status (which has been mapped to frequency, matching category.id)
                     categoryItems = items.filter(item =>
                       item.type === 'reminder' &&
                       item.recurrence &&
-                      item.recurrence.frequency === category.id
+                      item.status === category.id
                     );
                   } else {
                     categoryItems = [];

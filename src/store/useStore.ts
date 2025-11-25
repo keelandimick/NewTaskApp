@@ -11,6 +11,7 @@ interface Store {
   currentListId: string;
   currentView: ViewMode;
   displayMode: DisplayMode;
+  isDashboardView: boolean;
   selectedItemId: string | null;
   highlightedItemId: string | null;
   loading: boolean;
@@ -40,6 +41,7 @@ interface Store {
   setCurrentList: (listId: string) => void;
   setCurrentView: (view: ViewMode) => void;
   setDisplayMode: (mode: DisplayMode) => void;
+  setDashboardView: (isDashboard: boolean) => void;
   setSelectedItem: (itemId: string | null) => void;
   setHighlightedItem: (itemId: string | null) => void;
   setSearchQuery: (query: string) => void;
@@ -69,9 +71,10 @@ let subscriptionsActive = false;
 export const useStore = create<Store>((set, get) => ({
   items: [],
   lists: [],
-  currentListId: '',
-  currentView: 'tasks',
+  currentListId: localStorage.getItem('currentListId') || '',
+  currentView: (localStorage.getItem('currentView') as ViewMode) || 'tasks',
   displayMode: (localStorage.getItem('displayMode') as DisplayMode) || 'column',
+  isDashboardView: localStorage.getItem('isDashboardView') === 'true',
   selectedItemId: null,
   highlightedItemId: null,
   loading: false,
@@ -549,18 +552,24 @@ export const useStore = create<Store>((set, get) => ({
   
   setCurrentList: (listId) => {
     set({ currentListId: listId });
+    localStorage.setItem('currentListId', listId);
   },
-  
+
   setCurrentView: (view) => {
     set({ currentView: view });
+    localStorage.setItem('currentView', view);
   },
 
   setDisplayMode: (mode) => {
     set({ displayMode: mode });
     localStorage.setItem('displayMode', mode);
   },
-  
-  
+
+  setDashboardView: (isDashboard) => {
+    set({ isDashboardView: isDashboard });
+    localStorage.setItem('isDashboardView', isDashboard.toString());
+  },
+
   setSelectedItem: (itemId) => {
     set({ selectedItemId: itemId });
   },
@@ -611,7 +620,11 @@ export const useStore = create<Store>((set, get) => ({
           }
           // Set status based on recurrence frequency for recurring view (but keep complete items as complete)
           if (item.recurrence && currentView === 'recurring' && item.status !== 'complete') {
-            return { ...item, status: item.recurrence.frequency as any };
+            // Map minutely and hourly items to daily column (they'll show with interval text)
+            const frequency = (item.recurrence.frequency === 'minutely' || item.recurrence.frequency === 'hourly')
+              ? 'daily'
+              : item.recurrence.frequency;
+            return { ...item, status: frequency as any };
           }
           return item;
         });
