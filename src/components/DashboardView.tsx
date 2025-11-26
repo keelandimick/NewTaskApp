@@ -12,6 +12,11 @@ export const DashboardView: React.FC = () => {
   const [showUserMenu, setShowUserMenu] = React.useState(false);
   const notesOpen = !!selectedItemId;
 
+  // DEBUG: Log loading state
+  React.useEffect(() => {
+    console.log('[Dashboard] Loading state:', loading, 'Items count:', items.length);
+  }, [loading, items.length]);
+
   // Filter items by current list if one is selected
   const filteredByList = React.useMemo(() => {
     if (currentListId && currentListId !== 'all') {
