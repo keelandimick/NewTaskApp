@@ -930,9 +930,6 @@ export const useStore = create<Store>((set, get) => ({
       )
       .subscribe((status) => {
         console.log('[Realtime] Items channel status:', status);
-        if (status === 'SUBSCRIPTION_ERROR') {
-          console.error('[Realtime] Items subscription error - check Supabase auth and RLS policies');
-        }
       });
 
     // Subscribe to lists table changes (for all accessible lists being updated/deleted)
@@ -961,9 +958,6 @@ export const useStore = create<Store>((set, get) => ({
       )
       .subscribe((status) => {
         console.log('[Realtime] Lists channel status:', status);
-        if (status === 'SUBSCRIPTION_ERROR') {
-          console.error('[Realtime] Lists subscription error - check Supabase auth and RLS policies');
-        }
       });
 
     // Subscribe to notes table changes
@@ -990,9 +984,6 @@ export const useStore = create<Store>((set, get) => ({
       )
       .subscribe((status) => {
         console.log('[Realtime] Notes channel status:', status);
-        if (status === 'SUBSCRIPTION_ERROR') {
-          console.error('[Realtime] Notes subscription error - check Supabase auth and RLS policies');
-        }
       });
   },
 
