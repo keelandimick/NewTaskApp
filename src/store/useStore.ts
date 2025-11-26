@@ -867,11 +867,12 @@ export const useStore = create<Store>((set, get) => ({
 
   // Set up Realtime subscriptions for shared lists
   setupRealtimeSubscriptions: () => {
-    // Only set up once
+    // Only set up once - set flag IMMEDIATELY to prevent race conditions
     if (subscriptionsActive) {
       console.log('[Realtime] Subscriptions already active, skipping setup');
       return;
     }
+    subscriptionsActive = true;
 
     const state = get();
 
@@ -900,7 +901,6 @@ export const useStore = create<Store>((set, get) => ({
     }
 
     console.log('[Realtime] Setting up subscriptions for shared lists:', sharedListIds);
-    subscriptionsActive = true;
 
     // Subscribe to items table changes for shared lists
     realtimeChannels.items = supabase
