@@ -684,6 +684,8 @@ export const useStore = create<Store>((set, get) => ({
       // Sort by time within each frequency
       filteredItems.sort((a, b) => {
         if (!a.recurrence || !b.recurrence) return 0;
+        if (!a.recurrence.time) return 1;
+        if (!b.recurrence.time) return -1;
         return a.recurrence.time.localeCompare(b.recurrence.time);
       });
     }
