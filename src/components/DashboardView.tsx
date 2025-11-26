@@ -11,11 +11,14 @@ export const DashboardView: React.FC = () => {
   const { user } = useAuth();
   const [showUserMenu, setShowUserMenu] = React.useState(false);
   const notesOpen = !!selectedItemId;
+  const hasLoadedOnce = React.useRef(false);
 
-  // DEBUG: Log loading state
+  // Track when initial load completes
   React.useEffect(() => {
-    console.log('[Dashboard] Loading state:', loading, 'Items count:', items.length);
-  }, [loading, items.length]);
+    if (!loading && !hasLoadedOnce.current) {
+      hasLoadedOnce.current = true;
+    }
+  }, [loading]);
 
   // Filter items by current list if one is selected
   const filteredByList = React.useMemo(() => {
@@ -122,9 +125,9 @@ export const DashboardView: React.FC = () => {
     }
   }, [showUserMenu]);
 
-  // Only show loading spinner on initial load (when we have no items yet)
-  // This prevents getting stuck on "Loading tasks..." during background polling
-  if (loading && items.length === 0) {
+  // Only show loading spinner on very first load
+  // Once we've loaded once, never show the spinner again (even for empty accounts)
+  if (loading && !hasLoadedOnce.current) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-gray-600">Loading tasks...</div>
