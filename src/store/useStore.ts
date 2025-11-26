@@ -85,6 +85,13 @@ export const useStore = create<Store>((set, get) => ({
   
   loadData: async (userId: string) => {
     set({ loading: true, error: null });
+
+    // Safety timeout - ensure loading doesn't get stuck
+    const timeout = setTimeout(() => {
+      console.warn('[Store] Loading timeout - forcing loading to false');
+      set({ loading: false });
+    }, 10000); // 10 seconds
+
     try {
       const [lists, items] = await Promise.all([
         db.getLists(userId),
@@ -134,6 +141,7 @@ export const useStore = create<Store>((set, get) => ({
         return dbItem;
       });
       
+      clearTimeout(timeout);
       set({
         lists,
         items: mergedItems,
@@ -144,6 +152,7 @@ export const useStore = create<Store>((set, get) => ({
       // Set up realtime subscriptions after data loads
       get().setupRealtimeSubscriptions();
     } catch (error) {
+      clearTimeout(timeout);
       console.error('Failed to load data:', error);
       set({
         error: error instanceof Error ? error.message : 'Failed to load data',
