@@ -885,42 +885,27 @@ export const useStore = create<Store>((set, get) => ({
 
     const state = get();
 
-    // DEBUG: Log all lists the user has access to
-    console.log('[Realtime DEBUG] Total lists user has access to:', state.lists.length);
-    state.lists.forEach(list => {
-      console.log(`[Realtime DEBUG] List: ${list.name}`, {
-        id: list.id,
-        sharedWith: list.sharedWith,
-        hasSharedWith: !!(list.sharedWith && list.sharedWith.length > 0)
-      });
-    });
+    // Subscribe to ALL lists the user has access to
+    // This includes: lists they own AND lists shared with them
+    const allListIds = state.lists.map(l => l.id);
 
-    // Get shared list IDs
-    const sharedLists = state.lists.filter(list =>
-      list.sharedWith && list.sharedWith.length > 0
-    );
-    const sharedListIds = sharedLists.map(l => l.id);
+    console.log('[Realtime] Setting up subscriptions for all accessible lists:', allListIds);
 
-    console.log('[Realtime DEBUG] Filtered shared lists count:', sharedLists.length);
-    console.log('[Realtime DEBUG] Shared list IDs that will be subscribed:', sharedListIds);
-
-    if (sharedListIds.length === 0) {
-      console.log('[Realtime] No shared lists found, skipping subscription setup');
+    if (allListIds.length === 0) {
+      console.log('[Realtime] No lists found, skipping subscription setup');
       return;
     }
 
-    console.log('[Realtime] Setting up subscriptions for shared lists:', sharedListIds);
-
-    // Subscribe to items table changes for shared lists
+    // Subscribe to items table changes for all accessible lists
     realtimeChannels.items = supabase
-      .channel('shared-items-changes')
+      .channel('items-changes')
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'items',
-          filter: `list_id=in.(${sharedListIds.join(',')})`
+          filter: `list_id=in.(${allListIds.join(',')})`
         },
         (payload) => {
           console.log('[Realtime] Items change received:', {
@@ -940,16 +925,16 @@ export const useStore = create<Store>((set, get) => ({
       )
       .subscribe();
 
-    // Subscribe to lists table changes (for shared lists being updated/deleted)
+    // Subscribe to lists table changes (for all accessible lists being updated/deleted)
     realtimeChannels.lists = supabase
-      .channel('shared-lists-changes')
+      .channel('lists-changes')
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'lists',
-          filter: `id=in.(${sharedListIds.join(',')})`
+          filter: `id=in.(${allListIds.join(',')})`
         },
         (payload) => {
           console.log('[Realtime] Lists change received:', {
