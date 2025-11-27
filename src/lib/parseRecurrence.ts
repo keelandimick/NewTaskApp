@@ -89,18 +89,37 @@ export function parseRecurrenceFromText(text: string): RecurrenceResult | null {
     }
   }
 
+  // Helper to build full originalText including time pattern
+  const buildOriginalText = (patternMatch: string): string => {
+    const timeMatch = text.match(/\b(at\s+)?(\d{1,2})(:\d{2})?\s*([ap]m?|AM|PM)?/i);
+    if (timeMatch) {
+      // Find the position of both matches to combine them properly
+      const patternIndex = text.toLowerCase().indexOf(patternMatch.toLowerCase());
+      const timeIndex = text.indexOf(timeMatch[0]);
+
+      if (timeIndex > patternIndex) {
+        // Time comes after pattern: "every day at 9 a"
+        return text.substring(patternIndex, timeIndex + timeMatch[0].length);
+      } else {
+        // Time comes before pattern: "at 9 a every day"
+        return text.substring(timeIndex, patternIndex + patternMatch.length);
+      }
+    }
+    return patternMatch;
+  };
+
   // WEEKLY with day
   const weeklyDayPattern = /\b(?:every|each)\s+(mon(day)?|tue(sday)?|wed(nesday)?|thu(rsday)?|fri(day)?|sat(urday)?|sun(day)?)\b/i;
   const weeklyDayMatch = text.match(weeklyDayPattern);
   if (weeklyDayMatch) {
-    return { frequency: 'weekly', time: parseTime(), originalText: weeklyDayMatch[0] };
+    return { frequency: 'weekly', time: parseTime(), originalText: buildOriginalText(weeklyDayMatch[0]) };
   }
 
   // BIWEEKLY
   const biweeklyPattern = /\b(?:every|each)\s+(other|2nd|second)\s+(mon(day)?|tue(sday)?|wed(nesday)?|thu(rsday)?|fri(day)?|sat(urday)?|sun(day)?)\b/i;
   const biweeklyMatch = text.match(biweeklyPattern);
   if (biweeklyMatch) {
-    return { frequency: 'weekly', time: parseTime(), originalText: biweeklyMatch[0] };
+    return { frequency: 'weekly', time: parseTime(), interval: 2, originalText: buildOriginalText(biweeklyMatch[0]) };
   }
 
   // MINUTELY
@@ -124,25 +143,6 @@ export function parseRecurrenceFromText(text: string): RecurrenceResult | null {
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
     return { frequency: 'hourly', time: currentTime, interval, originalText: hourlyMatch[0] };
   }
-
-  // Helper to build full originalText including time pattern
-  const buildOriginalText = (patternMatch: string): string => {
-    const timeMatch = text.match(/\b(at\s+)?(\d{1,2})(:\d{2})?\s*([ap]m?|AM|PM)?/i);
-    if (timeMatch) {
-      // Find the position of both matches to combine them properly
-      const patternIndex = text.indexOf(patternMatch);
-      const timeIndex = text.indexOf(timeMatch[0]);
-
-      if (timeIndex > patternIndex) {
-        // Time comes after pattern: "every day at 9 a"
-        return text.substring(patternIndex, timeIndex + timeMatch[0].length);
-      } else {
-        // Time comes before pattern: "at 9 a every day"
-        return text.substring(timeIndex, patternIndex + patternMatch.length);
-      }
-    }
-    return patternMatch;
-  };
 
   // DAILY (also support "everyday" as one word)
   if (/\b((?:every|each)\s+day|daily|everyday)\b/i.test(text)) {
