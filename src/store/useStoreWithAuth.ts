@@ -72,12 +72,6 @@ export const useStoreWithAuth = () => {
     return store.deleteItem(id, userId);
   };
 
-  const restoreItem = async (id: string) => {
-    if (!userId) throw new Error('User must be authenticated');
-    lastUpdateRef.current = Date.now();
-    return store.restoreItem(id, userId);
-  };
-
   const permanentlyDeleteItem = async (id: string) => {
     if (!userId) throw new Error('User must be authenticated');
     lastUpdateRef.current = Date.now();
@@ -161,7 +155,6 @@ export const useStoreWithAuth = () => {
     addItem,
     updateItem,
     deleteItem,
-    restoreItem,
     permanentlyDeleteItem,
     emptyTrash,
     moveItem,
@@ -171,6 +164,14 @@ export const useStoreWithAuth = () => {
     addList,
     updateList,
     deleteList,
+
+    // Refresh data (for visibility change, etc.)
+    refreshData: async () => {
+      if (userId && !isLoadingRef.current) {
+        console.log('🔄 Refreshing data...');
+        await store.loadData(userId);
+      }
+    },
 
     // Functions that don't need userId
     reorderItems: (activeId: string, overId: string) => {

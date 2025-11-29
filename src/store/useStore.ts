@@ -24,7 +24,6 @@ interface Store {
   addItem: (item: Omit<Item, 'id' | 'createdAt' | 'updatedAt' | 'notes'>, userId: string) => Promise<string>;
   updateItem: (id: string, updates: Partial<Item>, userId: string) => Promise<void>;
   deleteItem: (id: string, userId: string) => Promise<void>;
-  restoreItem: (id: string, userId: string) => Promise<void>;
   permanentlyDeleteItem: (id: string, userId: string) => Promise<void>;
   emptyTrash: (userId: string) => Promise<void>;
   moveItem: (itemId: string, newStatus: TaskStatus | ReminderStatus, userId: string) => Promise<void>;
@@ -297,38 +296,6 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
   
-  restoreItem: async (id, userId) => {
-    set({ error: null });
-    try {
-      const item = get().items.find(i => i.id === id);
-      if (!item) return;
-
-      // Determine appropriate status based on item type
-      let restoredStatus: any;
-      if (item.type === 'task') {
-        restoredStatus = 'start';
-      } else if (item.type === 'reminder' && item.recurrence) {
-        restoredStatus = item.recurrence.frequency;
-      } else if (item.type === 'reminder') {
-        restoredStatus = calculateReminderStatus(item.reminderDate);
-      }
-
-      await db.updateItem(id, { deletedAt: undefined, status: restoredStatus }, userId);
-      
-      set((state) => ({
-        items: state.items.map((item) =>
-          item.id === id
-            ? { ...item, deletedAt: undefined, status: restoredStatus, updatedAt: new Date() }
-            : item
-        ),
-      }));
-    } catch (error) {
-      console.error('Failed to restore item:', error);
-      set({ error: error instanceof Error ? error.message : 'Failed to restore item' });
-      throw error;
-    }
-  },
-
   permanentlyDeleteItem: async (id, userId) => {
     set({ error: null });
     try {

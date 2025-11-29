@@ -23,7 +23,7 @@ import { TaskStatus, ReminderStatus } from './types';
 
 function App() {
   const { user, loading } = useAuth();
-  const { updateItem, moveItem, getFilteredItems, currentView, currentListId, displayMode, isDashboardView, setDashboardView, setSelectedItem, setHighlightedItem, selectedItemId, setCurrentList } = useStoreWithAuth();
+  const { updateItem, moveItem, getFilteredItems, currentView, currentListId, displayMode, isDashboardView, setDashboardView, setSelectedItem, setHighlightedItem, selectedItemId, setCurrentList, refreshData } = useStoreWithAuth();
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const items = getFilteredItems();
   const notesOpen = !!selectedItemId;
@@ -62,12 +62,15 @@ function App() {
             console.log(`⚡️ Quick switch (${Math.round(timeInBackground / 1000)} seconds) → keeping current view`);
           }
         }
+
+        // Always refresh data when tab becomes visible to sync any changes
+        refreshData();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [user, setDashboardView, setCurrentList, DASHBOARD_RESET_THRESHOLD]);
+  }, [user, setDashboardView, setCurrentList, refreshData, DASHBOARD_RESET_THRESHOLD]);
 
   // Get items in visual order for keyboard navigation
   const getVisuallyOrderedItems = () => {
@@ -76,10 +79,13 @@ function App() {
     }
 
     if (displayMode === 'category') {
-      // Sort by category alphabetically, with uncategorized last
+      // Sort by category alphabetically, with uncategorized first
       return [...items].sort((a, b) => {
-        const catA = a.category || 'zzz_uncategorized';
-        const catB = b.category || 'zzz_uncategorized';
+        const catA = a.category || '';
+        const catB = b.category || '';
+        // Uncategorized (empty) items come first
+        if (!catA && catB) return -1;
+        if (catA && !catB) return 1;
         if (catA !== catB) return catA.localeCompare(catB);
         // Within same category, maintain priority order (already sorted)
         return 0;

@@ -130,8 +130,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
         .sort()
         .map(cat => ({ id: cat, title: cat }));
 
-      // Always add "Uncategorized" at the bottom for tasks
-      categoryList.push({ id: 'uncategorized', title: 'Uncategorized' });
+      // Always add "Uncategorized" at the top for tasks
+      categoryList.unshift({ id: 'uncategorized', title: 'Uncategorized' });
 
       return categoryList;
     } else if (currentView === 'reminders') {

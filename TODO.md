@@ -6,6 +6,18 @@
 - Both web (.env) and iOS (SupabaseService.swift:699) expose API keys client-side
 - Solution: Move AI categorization to Supabase Edge Function (like Quick Add already does)
 
+### 🐛 Reminder/Recurring Bugs (NEEDS FULL AUDIT)
+**Date/Time Stripping Issues:**
+- Web version kept "every" in title and added as reminder instead of recurring
+- Abbreviations like "thurs" may not be recognized properly
+- Text stripping not working consistently for recurring items
+
+**Root Cause Investigation Needed:**
+- Audit recurrence detection in `quick-add` edge function
+- Verify "every" keyword triggers recurrence path (not reminder)
+- Check day abbreviation patterns (thurs, thur, thu vs thursday)
+- Ensure `strip_text` / `originalText` properly removes matched patterns
+
 ---
 
 ## Todos
