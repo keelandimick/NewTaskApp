@@ -3,6 +3,7 @@ import { useStoreWithAuth } from '../store/useStoreWithAuth';
 import { format } from 'date-fns';
 import { processTextWithAI, renderTextWithLinks } from '../lib/ai';
 import { formatRecurrence } from '../lib/formatRecurrence';
+import { Attachment } from '../types';
 
 interface NotesProps {
   isOpen: boolean;
@@ -10,7 +11,7 @@ interface NotesProps {
 }
 
 export const Notes: React.FC<NotesProps> = ({ isOpen, onDeleteItem }) => {
-  const { selectedItemId, items, addNote, deleteNote, updateNote, updateItem } = useStoreWithAuth();
+  const { selectedItemId, items, addNote, deleteNote, updateNote, updateItem, addAttachment, deleteAttachment, getAttachmentUrl } = useStoreWithAuth();
   const [noteInput, setNoteInput] = useState('');
   const [showOnHoldTag, setShowOnHoldTag] = useState(false);
   const [showOffHoldTag, setShowOffHoldTag] = useState(false);
@@ -20,10 +21,15 @@ export const Notes: React.FC<NotesProps> = ({ isOpen, onDeleteItem }) => {
   const [editingContent, setEditingContent] = useState('');
   const [isEditProcessing, setIsEditProcessing] = useState(false);
 
+  // Attachment state
+  const [isDragging, setIsDragging] = useState(false);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const reasonInputRef = useRef<HTMLInputElement>(null);
   const offHoldContainerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Auto-focus input when Notes panel opens
   useEffect(() => {
@@ -159,11 +165,83 @@ export const Notes: React.FC<NotesProps> = ({ isOpen, onDeleteItem }) => {
     }
   }, [noteInput, showOnHoldTag, showOffHoldTag]);
 
+  // Attachment handlers
+  const handleFileUpload = async (file: File) => {
+    if (!selectedItem) return;
+
+    // Validate file size (10MB max)
+    if (file.size > 10 * 1024 * 1024) {
+      alert('File too large. Maximum size is 10MB.');
+      return;
+    }
+
+    // Validate file type
+    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+      alert('Only images and PDFs are supported.');
+      return;
+    }
+
+    setIsUploadingAttachment(true);
+    try {
+      await addAttachment(selectedItem.id, file);
+    } catch (error) {
+      console.error('Failed to upload attachment:', error);
+      alert('Failed to upload file. Please try again.');
+    } finally {
+      setIsUploadingAttachment(false);
+    }
+  };
+
+  const handleDeleteAttachment = async (attachment: Attachment) => {
+    if (!selectedItem) return;
+
+    if (window.confirm(`Delete "${attachment.fileName}"?`)) {
+      try {
+        await deleteAttachment(selectedItem.id, attachment.id, attachment.filePath);
+      } catch (error) {
+        console.error('Failed to delete attachment:', error);
+        alert('Failed to delete attachment. Please try again.');
+      }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    for (const file of files) {
+      await handleFileUpload(file);
+    }
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-col bg-yellow-50"
+      className={`flex-1 flex flex-col bg-yellow-50 ${isDragging ? 'ring-2 ring-blue-400 ring-inset bg-blue-50' : ''}`}
       onClick={(e) => e.stopPropagation()}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-yellow-200 bg-yellow-100">
@@ -219,6 +297,139 @@ export const Notes: React.FC<NotesProps> = ({ isOpen, onDeleteItem }) => {
                 </div>
               )}
             </div>
+
+            {/* Attachments section - always visible */}
+            <div className={`border-b ${isDragging ? 'bg-blue-100 border-blue-300' : 'bg-gray-50 border-gray-200'}`}>
+              {/* Attachments header */}
+              <div className="flex items-center justify-between px-3 py-2">
+                <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-1">
+                  <span>📎</span>
+                  Attachments
+                </h3>
+                <div className="flex items-center gap-2">
+                  {selectedItem.attachments.length > 0 && (
+                    <span className="text-xs text-gray-500 font-medium">
+                      {selectedItem.attachments.length}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploadingAttachment}
+                    className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                  >
+                    {isUploadingAttachment ? 'Uploading...' : '+ Add'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Drag indicator */}
+              {isDragging && (
+                <div className="px-3 py-4 text-center text-blue-600 text-sm">
+                  Drop files here to upload
+                </div>
+              )}
+
+              {/* Upload progress indicator */}
+              {isUploadingAttachment && (
+                <div className="px-3 py-3 flex items-center justify-center gap-2">
+                  <svg className="animate-spin h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="text-sm text-blue-600">Uploading file...</span>
+                </div>
+              )}
+
+              {/* Attachment thumbnails */}
+              {selectedItem.attachments.length > 0 && !isDragging && !isUploadingAttachment && (
+                <div className="px-3 py-2 flex gap-2 overflow-x-auto">
+                  {selectedItem.attachments
+                    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                    .map((attachment) => (
+                      <div
+                        key={attachment.id}
+                        className="relative flex-shrink-0 w-16 h-16 bg-white rounded-lg border border-gray-200 overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 group"
+                        onClick={async () => {
+                          try {
+                            const url = await getAttachmentUrl(attachment.filePath);
+                            window.open(url, '_blank');
+                          } catch (error) {
+                            console.error('Failed to get attachment URL:', error);
+                            alert('Failed to open attachment. Please try again.');
+                          }
+                        }}
+                        title={attachment.fileName}
+                      >
+                        {attachment.fileType.startsWith('image/') ? (
+                          <AttachmentThumbnail attachment={attachment} getAttachmentUrl={getAttachmentUrl} />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center bg-gray-50">
+                            <span className="text-2xl">📄</span>
+                            <span className="text-[9px] text-gray-500 truncate max-w-full px-1">
+                              {attachment.fileName.length > 10
+                                ? attachment.fileName.substring(0, 7) + '...'
+                                : attachment.fileName}
+                            </span>
+                          </div>
+                        )}
+                        {/* Download button overlay */}
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              const url = await getAttachmentUrl(attachment.filePath);
+                              // Fetch as blob to force download (cross-origin URLs ignore download attribute)
+                              const response = await fetch(url);
+                              const blob = await response.blob();
+                              const blobUrl = window.URL.createObjectURL(blob);
+                              const link = document.createElement('a');
+                              link.href = blobUrl;
+                              link.download = attachment.fileName;
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                              window.URL.revokeObjectURL(blobUrl);
+                            } catch (error) {
+                              console.error('Failed to download:', error);
+                              alert('Failed to download file. Please try again.');
+                            }
+                          }}
+                          className="absolute top-0.5 left-0.5 w-4 h-4 bg-blue-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                          title="Download"
+                        >
+                          <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                        </button>
+                        {/* Delete button overlay */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteAttachment(attachment);
+                          }}
+                          className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs"
+                          title="Delete"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleFileUpload(file);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+              }}
+              className="hidden"
+            />
 
             {/* Notes list */}
             <div className="flex-1 overflow-y-auto px-3 py-2">
@@ -454,6 +665,55 @@ export const Notes: React.FC<NotesProps> = ({ isOpen, onDeleteItem }) => {
           </div>
         )}
       </div>
+    </div>
+  );
+};
+
+// Helper component for attachment thumbnails
+interface AttachmentThumbnailProps {
+  attachment: Attachment;
+  getAttachmentUrl: (filePath: string) => Promise<string>;
+}
+
+const AttachmentThumbnail: React.FC<AttachmentThumbnailProps> = ({ attachment, getAttachmentUrl }) => {
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadThumbnail = async () => {
+      try {
+        const url = await getAttachmentUrl(attachment.filePath);
+        if (mounted) {
+          setThumbnailUrl(url);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Failed to load thumbnail:', error);
+        if (mounted) setLoading(false);
+      }
+    };
+    loadThumbnail();
+    return () => { mounted = false; };
+  }, [attachment.filePath, getAttachmentUrl]);
+
+  if (loading) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-gray-100 animate-pulse">
+        <div className="w-8 h-8 bg-gray-200 rounded" />
+      </div>
+    );
+  }
+
+  return thumbnailUrl ? (
+    <img
+      src={thumbnailUrl}
+      alt={attachment.fileName}
+      className="w-full h-full object-cover"
+    />
+  ) : (
+    <div className="w-full h-full flex items-center justify-center bg-gray-100">
+      <span className="text-xl">🖼️</span>
     </div>
   );
 };

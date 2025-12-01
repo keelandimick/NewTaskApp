@@ -1,11 +1,12 @@
 import { supabase, Database } from './supabase';
-import { Item, List, Note, RecurrenceSettings } from '../types';
+import { Item, List, Note, Attachment, RecurrenceSettings } from '../types';
 import { parseRecurrenceFromText } from './parseRecurrence';
 import customChrono from './chronoConfig';
 
 type DbItem = Database['public']['Tables']['items']['Row'];
 type DbList = Database['public']['Tables']['lists']['Row'];
 type DbNote = Database['public']['Tables']['notes']['Row'];
+type DbAttachment = Database['public']['Tables']['attachments']['Row'];
 
 export const db = {
   // Lists
@@ -96,7 +97,7 @@ export const db = {
     // Get items from all accessible lists
     const { data, error } = await supabase
       .from('items')
-      .select('*, notes(*)')
+      .select('*, notes(*), attachments(*)')
       .in('list_id', listIds)
       .order('created_at', { ascending: true })
 
@@ -105,7 +106,7 @@ export const db = {
     return data.map(dbItemToItem);
   },
 
-  async createItem(item: Omit<Item, 'id' | 'createdAt' | 'updatedAt' | 'notes'>, userId: string): Promise<Item> {
+  async createItem(item: Omit<Item, 'id' | 'createdAt' | 'updatedAt' | 'notes' | 'attachments'>, userId: string): Promise<Item> {
     const { data, error } = await supabase
       .from('items')
       .insert({
@@ -120,7 +121,7 @@ export const db = {
         metadata: item.metadata,
         user_id: userId,
       })
-      .select('*, notes(*)')
+      .select('*, notes(*), attachments(*)')
       .single();
 
     if (error) throw error;
@@ -220,7 +221,7 @@ export const db = {
   async updateNote(noteId: string, content: string, _userId: string): Promise<Note> {
     const { data, error } = await supabase
       .from('notes')
-      .update({ 
+      .update({
         content
       })
       .eq('id', noteId)
@@ -230,6 +231,63 @@ export const db = {
     if (error) throw error;
 
     return dbNoteToNote(data);
+  },
+
+  // Attachments
+  async addAttachment(itemId: string, file: File, userId: string): Promise<Attachment> {
+    // Upload file to Supabase Storage
+    const filePath = `${userId}/${itemId}/${Date.now()}-${file.name}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('attachments')
+      .upload(filePath, file);
+
+    if (uploadError) throw uploadError;
+
+    // Create attachment record
+    const { data, error } = await supabase
+      .from('attachments')
+      .insert({
+        item_id: itemId,
+        file_name: file.name,
+        file_path: filePath,
+        file_type: file.type,
+        file_size: file.size,
+        user_id: userId,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return dbAttachmentToAttachment(data);
+  },
+
+  async deleteAttachment(attachmentId: string, filePath: string, userId: string): Promise<void> {
+    // Delete from storage
+    const { error: storageError } = await supabase.storage
+      .from('attachments')
+      .remove([filePath]);
+
+    if (storageError) throw storageError;
+
+    // Delete record
+    const { error } = await supabase
+      .from('attachments')
+      .delete()
+      .eq('id', attachmentId)
+      .eq('user_id', userId);
+
+    if (error) throw error;
+  },
+
+  async getAttachmentUrl(filePath: string): Promise<string> {
+    const { data, error } = await supabase.storage
+      .from('attachments')
+      .createSignedUrl(filePath, 3600); // 1 hour expiry
+
+    if (error) throw error;
+    if (!data?.signedUrl) throw new Error('Failed to get signed URL');
+    return data.signedUrl;
   },
 
   // Auth
@@ -342,12 +400,13 @@ export function dbListToList(dbList: DbList): List {
   };
 }
 
-export function dbItemToItem(dbItem: DbItem & { notes?: DbNote[] }): Item {
+export function dbItemToItem(dbItem: DbItem & { notes?: DbNote[]; attachments?: DbAttachment[] }): Item {
   const base = {
     id: dbItem.id,
     title: dbItem.title,
     priority: dbItem.priority,
     notes: dbItem.notes?.map(dbNoteToNote) || [],
+    attachments: dbItem.attachments?.map(dbAttachmentToAttachment) || [],
     createdAt: new Date(dbItem.created_at),
     updatedAt: new Date(dbItem.updated_at),
     listId: dbItem.list_id,
@@ -380,5 +439,16 @@ export function dbNoteToNote(dbNote: DbNote): Note {
     id: dbNote.id,
     content: dbNote.content,
     timestamp: new Date(dbNote.created_at),
+  };
+}
+
+export function dbAttachmentToAttachment(dbAttachment: DbAttachment): Attachment {
+  return {
+    id: dbAttachment.id,
+    fileName: dbAttachment.file_name,
+    filePath: dbAttachment.file_path,
+    fileType: dbAttachment.file_type,
+    fileSize: dbAttachment.file_size,
+    createdAt: new Date(dbAttachment.created_at),
   };
 }

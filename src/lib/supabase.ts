@@ -130,6 +130,38 @@ export type Database = {
           user_id?: string;
         };
       };
+      attachments: {
+        Row: {
+          id: string;
+          file_name: string;
+          file_path: string;
+          file_type: string;
+          file_size: number;
+          item_id: string;
+          created_at: string;
+          user_id: string;
+        };
+        Insert: {
+          id?: string;
+          file_name: string;
+          file_path: string;
+          file_type: string;
+          file_size: number;
+          item_id: string;
+          created_at?: string;
+          user_id: string;
+        };
+        Update: {
+          id?: string;
+          file_name?: string;
+          file_path?: string;
+          file_type?: string;
+          file_size?: number;
+          item_id?: string;
+          created_at?: string;
+          user_id?: string;
+        };
+      };
     };
   };
 };

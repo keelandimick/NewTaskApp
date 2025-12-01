@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { Item, List, ViewMode, DisplayMode, TaskStatus, ReminderStatus } from '../types';
-import { db, dbItemToItem, dbListToList, dbNoteToNote } from '../lib/database';
+import { Item, List, ViewMode, DisplayMode, TaskStatus, ReminderStatus, Attachment } from '../types';
+import { db, dbItemToItem, dbListToList, dbNoteToNote, dbAttachmentToAttachment } from '../lib/database';
 import { calculateReminderStatus } from '../utils/dateUtils';
 import { supabase } from '../lib/supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
@@ -21,7 +21,7 @@ interface Store {
   searchQuery: string;
 
   loadData: (userId: string) => Promise<void>;
-  addItem: (item: Omit<Item, 'id' | 'createdAt' | 'updatedAt' | 'notes'>, userId: string) => Promise<string>;
+  addItem: (item: Omit<Item, 'id' | 'createdAt' | 'updatedAt' | 'notes' | 'attachments'>, userId: string) => Promise<string>;
   updateItem: (id: string, updates: Partial<Item>, userId: string) => Promise<void>;
   deleteItem: (id: string, userId: string) => Promise<void>;
   permanentlyDeleteItem: (id: string, userId: string) => Promise<void>;
@@ -32,6 +32,10 @@ interface Store {
   addNote: (itemId: string, content: string, userId: string) => Promise<void>;
   deleteNote: (itemId: string, noteId: string, userId: string) => Promise<void>;
   updateNote: (itemId: string, noteId: string, content: string, userId: string) => Promise<void>;
+
+  addAttachment: (itemId: string, file: File, userId: string) => Promise<Attachment>;
+  deleteAttachment: (itemId: string, attachmentId: string, filePath: string, userId: string) => Promise<void>;
+  getAttachmentUrl: (filePath: string) => Promise<string>;
 
   addList: (list: Omit<List, 'id' | 'createdAt' | 'updatedAt'>, userId: string) => Promise<void>;
   updateList: (id: string, updates: Partial<List>, userId: string) => Promise<void>;
@@ -49,9 +53,9 @@ interface Store {
   searchItems: (query: string) => Item[];
 
   // Realtime handlers
-  handleRealtimeInsert: (table: 'items' | 'lists' | 'notes', record: any) => void;
-  handleRealtimeUpdate: (table: 'items' | 'lists' | 'notes', record: any) => void;
-  handleRealtimeDelete: (table: 'items' | 'lists' | 'notes', id: string) => void;
+  handleRealtimeInsert: (table: 'items' | 'lists' | 'notes' | 'attachments', record: any) => void;
+  handleRealtimeUpdate: (table: 'items' | 'lists' | 'notes' | 'attachments', record: any) => void;
+  handleRealtimeDelete: (table: 'items' | 'lists' | 'notes' | 'attachments', id: string) => void;
   isListShared: (listId: string) => boolean;
 
   // Realtime subscription management
@@ -64,6 +68,7 @@ let realtimeChannels: {
   items?: RealtimeChannel;
   lists?: RealtimeChannel;
   notes?: RealtimeChannel;
+  attachments?: RealtimeChannel;
 } = {};
 let subscriptionsActive = false;
 
@@ -417,11 +422,11 @@ export const useStore = create<Store>((set, get) => ({
   updateNote: async (itemId, noteId, content, userId) => {
     const item = get().items.find((i) => i.id === itemId);
     if (!item) return;
-    
+
     set({ error: null });
     try {
       const updatedNote = await db.updateNote(noteId, content, userId);
-      
+
       set((state) => ({
         items: state.items.map((i) =>
           i.id === itemId
@@ -435,7 +440,57 @@ export const useStore = create<Store>((set, get) => ({
       throw error;
     }
   },
-  
+
+  addAttachment: async (itemId, file, userId) => {
+    const item = get().items.find((i) => i.id === itemId);
+    if (!item) throw new Error('Item not found');
+
+    set({ error: null });
+    try {
+      const newAttachment = await db.addAttachment(itemId, file, userId);
+
+      set((state) => ({
+        items: state.items.map((i) =>
+          i.id === itemId
+            ? { ...i, attachments: [...i.attachments, newAttachment] }
+            : i
+        ),
+      }));
+
+      return newAttachment;
+    } catch (error) {
+      console.error('Failed to add attachment:', error);
+      set({ error: error instanceof Error ? error.message : 'Failed to add attachment' });
+      throw error;
+    }
+  },
+
+  deleteAttachment: async (itemId, attachmentId, filePath, userId) => {
+    const item = get().items.find((i) => i.id === itemId);
+    if (!item) return;
+
+    set({ error: null });
+    try {
+      await db.deleteAttachment(attachmentId, filePath, userId);
+
+      set((state) => ({
+        items: state.items.map((i) =>
+          i.id === itemId
+            ? { ...i, attachments: i.attachments.filter(a => a.id !== attachmentId) }
+            : i
+        ),
+      }));
+    } catch (error) {
+      console.error('Failed to delete attachment:', error);
+      set({ error: error instanceof Error ? error.message : 'Failed to delete attachment' });
+      throw error;
+    }
+  },
+
+  getAttachmentUrl: async (filePath) => {
+    return db.getAttachmentUrl(filePath);
+  },
+
   addList: async (listData, userId) => {
     set({ error: null });
     try {
@@ -757,6 +812,24 @@ export const useStore = create<Store>((set, get) => ({
       if (!exists) {
         set({ lists: [...state.lists, list] });
       }
+    } else if (table === 'attachments') {
+      // Handle new attachment
+      const itemId = record.item_id;
+      const item = state.items.find(i => i.id === itemId);
+
+      if (item && state.isListShared(item.listId)) {
+        const attachment = dbAttachmentToAttachment(record);
+        const exists = item.attachments.some(a => a.id === attachment.id);
+        if (!exists) {
+          set({
+            items: state.items.map(i =>
+              i.id === itemId
+                ? { ...i, attachments: [...i.attachments, attachment] }
+                : i
+            )
+          });
+        }
+      }
     }
   },
 
@@ -832,6 +905,14 @@ export const useStore = create<Store>((set, get) => ({
         items: state.items.map(item => ({
           ...item,
           notes: item.notes.filter(n => n.id !== id)
+        }))
+      });
+    } else if (table === 'attachments') {
+      // Remove attachment from its parent item
+      set({
+        items: state.items.map(item => ({
+          ...item,
+          attachments: item.attachments.filter(a => a.id !== id)
         }))
       });
     }
@@ -937,6 +1018,27 @@ export const useStore = create<Store>((set, get) => ({
         }
       )
       .subscribe();
+
+    // Subscribe to attachments table changes
+    realtimeChannels.attachments = supabase
+      .channel('shared-attachments-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'attachments'
+        },
+        (payload) => {
+          console.log('[Realtime] Attachments change:', payload);
+          if (payload.eventType === 'INSERT') {
+            get().handleRealtimeInsert('attachments', payload.new);
+          } else if (payload.eventType === 'DELETE') {
+            get().handleRealtimeDelete('attachments', (payload.old as any).id);
+          }
+        }
+      )
+      .subscribe();
   },
 
   // Clean up Realtime subscriptions
@@ -954,6 +1056,10 @@ export const useStore = create<Store>((set, get) => ({
     if (realtimeChannels.notes) {
       supabase.removeChannel(realtimeChannels.notes);
       realtimeChannels.notes = undefined;
+    }
+    if (realtimeChannels.attachments) {
+      supabase.removeChannel(realtimeChannels.attachments);
+      realtimeChannels.attachments = undefined;
     }
 
     subscriptionsActive = false;

@@ -26,7 +26,7 @@ const priorityLabels: Record<Priority, string> = {
 };
 
 export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
-  const { deleteItem, updateItem, currentView, highlightedItemId, lists, selectedItemId, setSelectedItem, setHighlightedItem, itemsInFlight, isDashboardView, setDashboardView, setCurrentView, setCurrentList } = useStoreWithAuth();
+  const { deleteItem, updateItem, currentView, highlightedItemId, lists, selectedItemId, setSelectedItem, setHighlightedItem, itemsInFlight, isDashboardView, setDashboardView, setCurrentView, setCurrentList, addAttachment } = useStoreWithAuth();
   const [showEditModal, setShowEditModal] = React.useState(false);
   const [showPriorityOptions, setShowPriorityOptions] = React.useState(false);
   const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number } | null>(null);
@@ -38,6 +38,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
   );
   const [showMoveToList, setShowMoveToList] = React.useState(false);
   const renameInputRef = React.useRef<HTMLInputElement>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [isUploadingFile, setIsUploadingFile] = React.useState(false);
 
   const isHighlighted = highlightedItemId === item.id;
   const isSelected = selectedItemId === item.id;
@@ -256,16 +258,22 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
           )}
         </div>
 
-        {/* Notes indicator and Priority badge container */}
+        {/* Notes/Attachments indicators and Priority badge container */}
         {currentView !== 'trash' && currentView !== 'complete' && (
           <div className="flex items-center gap-2">
+            {/* Attachments indicator */}
+            {item.attachments.length > 0 && (
+              <span className="text-base" title={`${item.attachments.length} attachment${item.attachments.length === 1 ? '' : 's'}`}>
+                📎
+              </span>
+            )}
             {/* Notes indicator */}
             {item.notes.length > 0 && (
               <span className="text-base" title={`${item.notes.length} note${item.notes.length === 1 ? '' : 's'}`}>
                 📝
               </span>
             )}
-            
+
             {/* Priority badge */}
             <div className={`relative priority-options-${item.id}`}>
                 {showPriorityOptions && (
@@ -583,6 +591,13 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
               disabled: !!item.recurrence, // Disable for recurring items
             },
             {
+              label: 'Add File',
+              icon: '📎',
+              onClick: () => {
+                fileInputRef.current?.click();
+              },
+            },
+            {
               label: 'Delete',
               icon: '🗑️',
               onClick: async () => {
@@ -599,6 +614,51 @@ export const TaskCard: React.FC<TaskCardProps> = ({ item }) => {
             },
           ]}
         />
+      )}
+
+      {/* Hidden file input for attachments */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+
+          // Validate file size (10MB max)
+          if (file.size > 10 * 1024 * 1024) {
+            alert('File too large. Maximum size is 10MB.');
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            return;
+          }
+
+          setIsUploadingFile(true);
+          try {
+            await addAttachment(item.id, file);
+            // Select the item to show the attachments panel
+            setSelectedItem(item.id);
+          } catch (error) {
+            console.error('Failed to upload file:', error);
+            alert('Failed to upload file. Please try again.');
+          } finally {
+            setIsUploadingFile(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+          }
+        }}
+        className="hidden"
+      />
+
+      {/* Upload overlay spinner */}
+      {isUploadingFile && (
+        <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-10">
+          <div className="flex items-center gap-2">
+            <svg className="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span className="text-sm text-blue-600">Uploading...</span>
+          </div>
+        </div>
       )}
     </div>
   );

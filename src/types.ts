@@ -9,11 +9,21 @@ export interface Note {
   timestamp: Date;
 }
 
+export interface Attachment {
+  id: string;
+  fileName: string;
+  filePath: string;
+  fileType: string;
+  fileSize: number;
+  createdAt: Date;
+}
+
 export interface BaseItem {
   id: string;
   title: string;
   priority: Priority;
   notes: Note[];
+  attachments: Attachment[];
   createdAt: Date;
   updatedAt: Date;
   listId: string;

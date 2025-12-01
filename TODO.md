@@ -22,13 +22,6 @@
 
 ## Todos
 
-### 1. File Attachments
-- Implement file attachment directly to items
-- Allow users to attach files to tasks/reminders
-- Display attached files in Notes section
-- Support common file types (images, PDFs, documents)
-- Store files in Supabase Storage
-
 ### 2. Silent Push Notifications (iOS Background Sync)
 - Enable notifications for reminders created on web without opening iOS app
 - Setup APNs (Apple Push Notification Service) in Apple Developer account

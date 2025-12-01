@@ -54,7 +54,7 @@ export const useStoreWithAuth = () => {
   }, [userId, user?.email]);
 
   // Create wrapped functions that automatically include userId
-  const addItem = async (item: Omit<Item, 'id' | 'createdAt' | 'updatedAt' | 'notes'>) => {
+  const addItem = async (item: Omit<Item, 'id' | 'createdAt' | 'updatedAt' | 'notes' | 'attachments'>) => {
     if (!userId) throw new Error('User must be authenticated');
     lastUpdateRef.current = Date.now();
     return store.addItem(item, userId);
@@ -106,6 +106,18 @@ export const useStoreWithAuth = () => {
     if (!userId) throw new Error('User must be authenticated');
     lastUpdateRef.current = Date.now();
     return store.updateNote(itemId, noteId, content, userId);
+  };
+
+  const addAttachment = async (itemId: string, file: File) => {
+    if (!userId) throw new Error('User must be authenticated');
+    lastUpdateRef.current = Date.now();
+    return store.addAttachment(itemId, file, userId);
+  };
+
+  const deleteAttachment = async (itemId: string, attachmentId: string, filePath: string) => {
+    if (!userId) throw new Error('User must be authenticated');
+    lastUpdateRef.current = Date.now();
+    return store.deleteAttachment(itemId, attachmentId, filePath, userId);
   };
 
   const addList = async (list: Omit<List, 'id' | 'createdAt' | 'updatedAt'>) => {
@@ -161,6 +173,9 @@ export const useStoreWithAuth = () => {
     addNote,
     deleteNote,
     updateNote,
+    addAttachment,
+    deleteAttachment,
+    getAttachmentUrl: store.getAttachmentUrl,
     addList,
     updateList,
     deleteList,
