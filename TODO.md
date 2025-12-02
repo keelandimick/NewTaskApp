@@ -11,6 +11,7 @@
 - Web version kept "every" in title and added as reminder instead of recurring
 - Abbreviations like "thurs" may not be recognized properly
 - Text stripping not working consistently for recurring items
+- Including words like "now" or "November" when not intending to add date/time is problematic
 
 **Root Cause Investigation Needed:**
 - Audit recurrence detection in `quick-add` edge function

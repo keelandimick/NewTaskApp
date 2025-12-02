@@ -236,7 +236,9 @@ export const db = {
   // Attachments
   async addAttachment(itemId: string, file: File, userId: string): Promise<Attachment> {
     // Upload file to Supabase Storage
-    const filePath = `${userId}/${itemId}/${Date.now()}-${file.name}`;
+    // Sanitize filename: replace spaces and special characters with underscores
+    const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filePath = `${userId}/${itemId}/${Date.now()}-${sanitizedFileName}`;
 
     const { error: uploadError } = await supabase.storage
       .from('attachments')
