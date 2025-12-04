@@ -6,6 +6,7 @@ import { TaskStatus, ReminderStatus } from '../types';
 import { Notes } from './Notes';
 import { useAuth } from '../contexts/AuthContext';
 import { SearchBar } from './SearchBar';
+import { CompletedItemsSearch } from './CompletedItemsSearch';
 import { categorizeItems } from '../lib/ai';
 
 interface TaskBoardProps {
@@ -67,6 +68,96 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
       setHighlightedItem(itemId);
     }, 100);
   };
+
+  // Handler for completed items search result click
+  const handleCompletedSearchResultClick = (itemId: string) => {
+    const item = allItems.find(i => i.id === itemId);
+    if (!item) return;
+
+    // Only open notes panel if item has notes or attachments
+    if (item.notes.length > 0 || item.attachments.length > 0) {
+      setSelectedItem(itemId);
+
+      // Scroll to and highlight the item
+      setTimeout(() => {
+        const element = document.getElementById(`item-${itemId}`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        setHighlightedItem(itemId);
+      }, 100);
+    }
+  };
+
+  // Handler for restoring a completed item
+  const handleRestoreItem = async (itemId: string) => {
+    const item = allItems.find(i => i.id === itemId);
+    if (!item) return;
+
+    // Calculate the new status based on item type
+    let newStatus: string;
+
+    if (item.type === 'task') {
+      newStatus = 'start';
+    } else if (item.recurrence) {
+      // Recurring items: use frequency as status
+      newStatus = item.recurrence.frequency === 'minutely' || item.recurrence.frequency === 'hourly'
+        ? 'daily'
+        : item.recurrence.frequency;
+    } else {
+      // Reminders: calculate based on reminderDate
+      if (item.reminderDate) {
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const reminderDate = new Date(item.reminderDate);
+        const reminderDateOnly = new Date(reminderDate.getFullYear(), reminderDate.getMonth(), reminderDate.getDate());
+        const diffTime = reminderDateOnly.getTime() - todayStart.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays <= 0) newStatus = 'today';
+        else if (diffDays <= 7) newStatus = 'within7';
+        else newStatus = '7plus';
+      } else {
+        newStatus = 'today';
+      }
+    }
+
+    try {
+      await updateItem(itemId, { status: newStatus as any });
+
+      // Clear selection
+      setSelectedItem(null);
+
+      // Navigate to the item's list
+      setCurrentList(item.listId);
+
+      // Navigate to the correct view based on item type
+      if (item.type === 'task') {
+        setCurrentView('tasks');
+      } else if (item.recurrence) {
+        setCurrentView('recurring');
+      } else {
+        setCurrentView('reminders');
+      }
+
+      // Scroll to and highlight the item after view/list change completes
+      setTimeout(() => {
+        const element = document.getElementById(`item-${itemId}`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        setHighlightedItem(itemId);
+      }, 100);
+    } catch (error) {
+      console.error('Failed to restore item:', error);
+      alert('Failed to restore item. Please try again.');
+    }
+  };
+
+  // Get all completed items for the search
+  const completedItems = allItems.filter(item =>
+    item.status === 'complete' && !item.deletedAt
+  );
   
   const items = getFilteredItems();
 
@@ -492,6 +583,15 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
               Empty Trash
             </button>
           )}
+
+          {/* Search bar for Completed Items view */}
+          {currentView === 'complete' && (
+            <CompletedItemsSearch
+              items={completedItems}
+              lists={lists}
+              onResultClick={handleCompletedSearchResultClick}
+            />
+          )}
         </div>
 
         <div className="flex gap-4 p-6 pt-3 flex-1 overflow-auto">
@@ -569,7 +669,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ activeId, notesOpen }) => 
                   )}
                 </React.Fragment>
               ))}
-              {notesOpen && <Notes isOpen={true} onDeleteItem={handleDeleteFromNotes} />}
+              {notesOpen && <Notes isOpen={true} onDeleteItem={handleDeleteFromNotes} readOnly={currentView === 'complete'} onRestore={currentView === 'complete' ? handleRestoreItem : undefined} />}
             </>
           )}
         </div>
