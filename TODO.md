@@ -23,9 +23,19 @@
 
 ## Todos
 
-### 2. Silent Push Notifications (iOS Background Sync)
-- Enable notifications for reminders created on web without opening iOS app
+### 2. Server-Side Push Notifications (Cross-Platform Reminders)
+**Problem:** Currently using local notifications scheduled on-device. When a task with a reminder is created from web (or any source outside the iOS app), the iOS app must be open/foreground to receive the real-time sync and schedule the local notification. If the app is in background or closed, no notification is scheduled.
+
+**Solution Options:**
+
+**Option A: Direct Push Notifications (Simpler)**
 - Setup APNs (Apple Push Notification Service) in Apple Developer account
-- Create Supabase Edge Function to send silent push when reminder is created
-- iOS receives silent push, wakes briefly, syncs task, schedules local notification
-- Ensures cross-platform reminder notifications work reliably
+- Register device tokens in iOS app, store in Supabase
+- Create Supabase Edge Function triggered when reminder time arrives
+- Server sends push notification directly via APNs - no local scheduling needed
+
+**Option B: Silent Push to Trigger Local Notification**
+- Same APNs setup
+- When reminder is created, server sends silent push to wake iOS app
+- iOS app syncs task and schedules local notification
+- More complex, but allows richer local notification customization
